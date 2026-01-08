@@ -36,7 +36,6 @@ import Data.List.NonEmpty (NonEmpty)
  -     | milliseconds
  -     | hours
  -     | eval
- -     | quantile
  -     | avg
  -     | avg_over_time
  -     | quantile
@@ -61,6 +60,8 @@ import Data.List.NonEmpty (NonEmpty)
  -     | filter
  -     | join
  -     | map
+ -     | earliest
+ -     | latest
  - e{1} ::= f | x | s | (e{≥0}) | c | (e{≥0}, e{≥0})
  - e{0} ::= e{≥1} e{≥1} e{≥1} ... e{≥1} | \x -> e{≥0} | let x = e{≥0} in e{≥0}
  -}
@@ -127,6 +128,8 @@ data Function = AddInstantVectorScalar
               | Filter
               | Join
               | Map
+              | Earliest
+              | Latest
               deriving Show
 
 -- | This expression has the following property, assumed in the interpreter:

@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE ViewPatterns #-}
 module Cardano.Timeseries.Store.Tree(Point(..), Tree, fromFlat) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (..), InstantVector)
@@ -60,6 +61,12 @@ instance Store (Tree a) a where
   metrics = Set.fromList . Map.keys
 
   count = Map.foldl (Map.foldl (\acc ps -> acc + length ps)) 0
+
+  earliest store (flip Map.lookup store -> Just dat) | not (Map.null dat) = Just $ fst $ Map.findMin dat
+  earliest store _ = Nothing
+
+  latest store (flip Map.lookup store -> Just dat) | not (Map.null dat) = Just $ fst $ Map.findMax dat
+  latest store _ = Nothing
 
 fromFlat :: Flat a -> Tree a
 fromFlat []                          = new

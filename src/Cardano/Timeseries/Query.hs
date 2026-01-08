@@ -1,45 +1,57 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-typed-holes #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns         #-}
 module Cardano.Timeseries.Query(interp) where
-import           Cardano.Timeseries.Domain.Identifier (Identifier (..))
-import           Cardano.Timeseries.Domain.Instant (Instant (Instant), InstantVector, share)
-import qualified Cardano.Timeseries.Domain.Instant as Domain
-import qualified Cardano.Timeseries.Domain.Instant as Instant
+import           Cardano.Timeseries.Domain.Identifier    (Identifier (..))
+import           Cardano.Timeseries.Domain.Instant       (Instant (Instant),
+                                                          InstantVector, share)
+import qualified Cardano.Timeseries.Domain.Instant       as Domain
+import qualified Cardano.Timeseries.Domain.Instant       as Instant
 import           Cardano.Timeseries.Domain.Interval
-import           Cardano.Timeseries.Domain.Timeseries (Timeseries (Timeseries), TimeseriesVector,
-                   eachNewest, eachOldest, transpose)
-import qualified Cardano.Timeseries.Domain.Timeseries as Timeseries
-import           Cardano.Timeseries.Domain.Types (Labelled, MetricIdentifier, Timestamp)
-import           Cardano.Timeseries.Query.BinaryRelation (BinaryRelation, embedScalar,
-                   mbBinaryRelationInstantVector, mbBinaryRelationScalar)
+import           Cardano.Timeseries.Domain.Timeseries    (Timeseries (Timeseries),
+                                                          TimeseriesVector,
+                                                          eachNewest,
+                                                          eachOldest, transpose)
+import qualified Cardano.Timeseries.Domain.Timeseries    as Timeseries
+import           Cardano.Timeseries.Domain.Types         (Labelled,
+                                                          MetricIdentifier,
+                                                          Timestamp)
+import           Cardano.Timeseries.Query.BinaryRelation (BinaryRelation,
+                                                          embedScalar,
+                                                          mbBinaryRelationInstantVector,
+                                                          mbBinaryRelationScalar)
 import qualified Cardano.Timeseries.Query.BinaryRelation as BinaryRelation
-import           Cardano.Timeseries.Query.Expr as Expr
-import           Cardano.Timeseries.Query.Value as Value
-import           Cardano.Timeseries.Store (Store (metrics))
-import qualified Cardano.Timeseries.Store as Store
-import           Cardano.Timeseries.Util (maybeToEither, safeToDouble, safeToWord64)
+import           Cardano.Timeseries.Query.Expr           as Expr
+import           Cardano.Timeseries.Query.Value          as Value
+import           Cardano.Timeseries.Store                (Store (metrics),
+                                                          earliest, latest)
+import qualified Cardano.Timeseries.Store                as Store
+import           Cardano.Timeseries.Util                 (maybeToEither,
+                                                          safeToDouble,
+                                                          safeToWord64)
 
-import           Control.Monad (filterM, (<=<))
-import           Control.Monad.Except (ExceptT, liftEither, throwError)
-import           Control.Monad.State (get, put)
-import           Control.Monad.State.Strict (State)
-import           Control.Monad.Trans (lift)
-import           Data.List (find)
-import           Data.List.NonEmpty (fromList, toList)
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromJust)
-import           Data.Set (isSubsetOf, member)
-import qualified Data.Set as Set
-import           Data.Word (Word64)
-import           GHC.Base (NonEmpty ((:|)))
+import           Control.Monad                           (filterM, (<=<))
+import           Control.Monad.Except                    (ExceptT, liftEither,
+                                                          throwError)
+import           Control.Monad.State                     (get, put)
+import           Control.Monad.State.Strict              (State)
+import           Control.Monad.Trans                     (lift)
+import           Data.List                               (find)
+import           Data.List.NonEmpty                      (fromList, toList)
+import           Data.Map.Strict                         (Map)
+import qualified Data.Map.Strict                         as Map
+import           Data.Maybe                              (fromJust)
+import           Data.Set                                (isSubsetOf, member)
+import qualified Data.Set                                as Set
+import           Data.Word                               (Word64)
+import           GHC.Base                                (NonEmpty ((:|)))
 
-import           Statistics.Function (minMax)
-import           Statistics.Quantile (cadpw, quantile)
-import           Statistics.Sample (mean)
+import           Cardano.Timeseries.Query.Types          (Error, QueryM)
+import           Statistics.Function                     (minMax)
+import           Statistics.Quantile                     (cadpw, quantile)
+import           Statistics.Sample                       (mean)
 
 join :: (a -> b -> c) -> InstantVector a -> InstantVector b -> Either Error (InstantVector c)
 join _ [] _ = Right []
@@ -58,101 +70,101 @@ sumOverTime at = fmap compute where
   compute :: Timeseries Double -> Instant Double
   compute series = Domain.Instant (Timeseries.labels series) at (sum $ Timeseries.toVector series)
 
-expectInstantVector :: Value -> ExceptT Error (State Int) (InstantVector Value)
+expectInstantVector :: Value -> QueryM (InstantVector Value)
 expectInstantVector (Value.InstantVector v) = pure v
 expectInstantVector _ = throwError "Unexpected expression type: expected an instant vector"
 
-expectRangeVector :: Value -> ExceptT Error (State Int) (TimeseriesVector Value)
+expectRangeVector :: Value -> QueryM (TimeseriesVector Value)
 expectRangeVector (Value.RangeVector v) = pure v
 expectRangeVector _ = throwError "Unexpected expression type: expected a range vector"
 
-expectTimeseriesScalar :: Timeseries Value -> ExceptT Error (State Int) (Timeseries Double)
+expectTimeseriesScalar :: Timeseries Value -> QueryM (Timeseries Double)
 expectTimeseriesScalar = traverse expectScalar
 
-expectRangeVectorScalar :: Value -> ExceptT Error (State Int) (TimeseriesVector Double)
+expectRangeVectorScalar :: Value -> QueryM (TimeseriesVector Double)
 expectRangeVectorScalar v = expectRangeVector v >>= traverse expectTimeseriesScalar
 
-expectInstantScalar :: Instant Value -> ExceptT Error (State Int) (Instant Double)
+expectInstantScalar :: Instant Value -> QueryM (Instant Double)
 expectInstantScalar = traverse expectScalar
 
-expectInstantBool :: Instant Value -> ExceptT Error (State Int) (Instant Bool)
+expectInstantBool :: Instant Value -> QueryM (Instant Bool)
 expectInstantBool = traverse expectBool
 
-expectInstantVectorScalar :: Value -> ExceptT Error (State Int) (InstantVector Double)
+expectInstantVectorScalar :: Value -> QueryM (InstantVector Double)
 expectInstantVectorScalar v = expectInstantVector v >>= traverse expectInstantScalar
 
-expectInstantVectorBool :: Value -> ExceptT Error (State Int) (InstantVector Bool)
+expectInstantVectorBool :: Value -> QueryM (InstantVector Bool)
 expectInstantVectorBool v = expectInstantVector v >>= traverse expectInstantBool
 
-expectPair :: Value -> ExceptT Error (State Int) (Value, Value)
+expectPair :: Value -> QueryM (Value, Value)
 expectPair (Value.Pair a b) = pure (a, b)
 expectPair _ = throwError "Unexpected expression type: expected a pair"
 
-expectScalar :: Value -> ExceptT Error (State Int) Double
+expectScalar :: Value -> QueryM Double
 expectScalar (Value.Scalar x) = pure x
 expectScalar _ = throwError "Unexpected expression type: expected a scalar"
 
-expectBool :: Value -> ExceptT Error (State Int) Bool
+expectBool :: Value -> QueryM Bool
 expectBool Value.Truth = pure Prelude.True
 expectBool Value.Falsity = pure Prelude.False
 expectBool _ = throwError "Unexpected expression type: expected a bool"
 
-expectBoolean :: Value -> ExceptT Error (State Int) Bool
+expectBoolean :: Value -> QueryM Bool
 expectBoolean Truth = pure Prelude.True
 expectBoolean Falsity = pure Prelude.False
 expectBoolean _ = throwError "Unexpected expression type: expected a boolean"
 
-expectDuration :: Value -> ExceptT Error (State Int) Word64
+expectDuration :: Value -> QueryM Word64
 expectDuration (Value.Duration x) = pure x
 expectDuration e = throwError "Unexpected expression type: expected a duration"
 
-expectTimestamp :: Value -> ExceptT Error (State Int) Word64
+expectTimestamp :: Value -> QueryM Word64
 expectTimestamp (Value.Timestamp x) = pure x
 expectTimestamp e = throwError "Unexpected expression type: expected a timestamp"
 
-expectFunction :: Value -> ExceptT Error (State Int) FunctionValue
+expectFunction :: Value -> QueryM FunctionValue
 expectFunction (Value.Function f) = pure f
 expectFunction e = throwError "Unexpected expression type: expected a function"
 
-doubleToInteger :: Double -> ExceptT Error (State Int) Integer
+doubleToInteger :: Double -> QueryM Integer
 doubleToInteger x = if isWhole x then pure (truncate x) else throwError ("Expected a whole number, got: " <> show x) where
   isWhole :: Double -> Bool
   isWhole x = snd (properFraction x :: (Integer, Double)) == 0
 
-toWord64 :: Integer -> ExceptT Error (State Int) Word64
+toWord64 :: Integer -> QueryM Word64
 toWord64 x = liftEither $ maybeToEither ("Integer is to big to fit into a 64-bit unsigned integer: " <> show x) (safeToWord64 x)
 
 toDouble :: Integer -> Either Error Double
 toDouble x = maybeToEither ("Integer is to big to fit into an IEEE 64-bit floating point" <> show x) (safeToDouble x)
 
-interpRange :: FunctionValue -> Interval -> Word64 -> ExceptT Error (State Int) (TimeseriesVector Value)
+interpRange :: FunctionValue -> Interval -> Word64 -> QueryM (TimeseriesVector Value)
 interpRange f Interval{..} rate = transpose <$> sample start end where
 
-  sample :: Timestamp -> Timestamp -> ExceptT Error (State Int) [InstantVector Value]
+  sample :: Timestamp -> Timestamp -> QueryM [InstantVector Value]
   sample t max | t > max = pure []
   sample t max = (:) <$> (expectInstantVector <=< f) (Value.Timestamp t) <*> sample (t + rate) max
 
-interpVariable :: Store s Double => s -> MetricIdentifier -> Value -> ExceptT Error (State Int) Value
+interpVariable :: Store s Double => s -> MetricIdentifier -> Value -> QueryM Value
 interpVariable store x t = do
   t <- expectTimestamp t
   pure (Value.InstantVector (fmap (fmap Value.Scalar) (Store.evaluate store x t)))
 
-interpLabel :: Expr -> ExceptT Error (State Int) (Labelled String)
+interpLabel :: Expr -> QueryM (Labelled String)
 interpLabel (Expr.MkPair (Expr.Str k) (Expr.Str v)) = pure (k, v)
 interpLabel _ = throwError "Unexpected expression: expected a label"
 
-interpLabels :: [Expr] -> ExceptT Error (State Int) [Labelled String]
+interpLabels :: [Expr] -> QueryM [Labelled String]
 interpLabels = traverse interpLabel
 
-interpFilter :: FunctionValue -> InstantVector Value -> ExceptT Error (State Int) (InstantVector Value)
+interpFilter :: FunctionValue -> InstantVector Value -> QueryM (InstantVector Value)
 interpFilter f = filterM pred where
-  pred :: Instant Value -> ExceptT Error (State Int) Bool
+  pred :: Instant Value -> QueryM Bool
   pred inst = (expectBoolean <=< f) (Instant.value inst)
 
-interpMap :: FunctionValue -> InstantVector Value -> ExceptT Error (State Int) (InstantVector Value)
+interpMap :: FunctionValue -> InstantVector Value -> QueryM (InstantVector Value)
 interpMap f = traverse (traverse f)
 
-interpRate :: TimeseriesVector Double -> ExceptT Error (State Int) (InstantVector Double)
+interpRate :: TimeseriesVector Double -> QueryM (InstantVector Double)
 interpRate v = do
   min <- liftEither $ maybeToEither "Can't compute rate" (eachOldest v)
   max <- liftEither $ maybeToEither "Can't compute rate" (eachNewest v)
@@ -163,7 +175,7 @@ interpRate v = do
     let v = (Instant.value max - Instant.value min) / fromIntegral (Instant.timestamp max - Instant.timestamp min) in
     Instant (Instant.labels min) (Instant.timestamp max) v
 
-interpIncrease :: TimeseriesVector Double -> ExceptT Error (State Int) (InstantVector Double)
+interpIncrease :: TimeseriesVector Double -> QueryM (InstantVector Double)
 interpIncrease v = liftEither $ do
   min <- maybeToEither "Can't compute rate" (eachOldest v)
   max <- maybeToEither "Can't compute rate" (eachNewest v)
@@ -192,7 +204,7 @@ interpFilterBinaryRelation :: Store s Double
                            -> BinaryRelation
                            -> Expr
                            -> Timestamp
-                           -> ExceptT Error (State Int) Value
+                           -> QueryM Value
 interpFilterBinaryRelation store env v rel k now = do
   nextVarIdx <- lift get
   lift (put (1 + nextVarIdx))
@@ -211,7 +223,7 @@ interpFilterBinaryRelation store env v rel k now = do
     )
     now
 
-interp :: Store s Double => s -> Map Identifier Value -> Expr -> Timestamp -> ExceptT Error (State Int) Value
+interp :: Store s Double => s -> Map Identifier Value -> Expr -> Timestamp -> QueryM Value
 interp _ env (Expr.Number x) _ = do
   pure (Value.Scalar x)
 interp store env (Expr.Variable x) _ =
@@ -223,6 +235,18 @@ interp store env (Expr.Variable x) _ =
           pure $ Value.Function (interpVariable store x)
         _ ->
           throwError ("Undefined variable: " <> show x)
+interp store env (Application (Builtin Expr.Earliest) (Expr.Variable x :| [])) _ =
+  case x of
+    User (earliest store -> Just x) ->
+      pure $ Value.Timestamp x
+    _ ->
+      throwError ("Undefined variable: " <> show x)
+interp store env (Application (Builtin Expr.Latest) (Expr.Variable x :| [])) _ =
+  case x of
+    User (latest store -> Just x) ->
+      pure $ Value.Timestamp x
+    _ ->
+      throwError ("Undefined variable: " <> show x)
 interp _ env (Builtin Now) now = pure (Timestamp (fromIntegral now))
 interp _ env (Builtin Epoch) now = pure (Timestamp 0)
 interp store env (Lambda x body) now = pure $ Value.Function $ \v ->

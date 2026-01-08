@@ -20,6 +20,10 @@ class Store s a | s -> a where
   -- | points in the store sharing a series.
   evaluate :: s -> MetricIdentifier -> Timestamp -> InstantVector a
 
+  earliest :: s -> MetricIdentifier -> Maybe Timestamp
+
+  latest :: s -> MetricIdentifier -> Maybe Timestamp
+
   new :: s
 
   metrics :: s -> Set MetricIdentifier

@@ -4,33 +4,35 @@
 module Main where
 
 import           Cardano.Timeseries.Import.PlainCBOR
-import           Cardano.Timeseries.Query            (interp)
-import           Cardano.Timeseries.Query.Parser     (expr)
-import           Cardano.Timeseries.Query.Value      (Error, Value)
+import           Cardano.Timeseries.Query                (interp)
+import           Cardano.Timeseries.Query.Parser         (expr)
+import           qualified Cardano.Timeseries.Query.Surface.Parser as Surface.Parser
+import           Cardano.Timeseries.Query.Value          (Value)
 import           Cardano.Timeseries.Store
-import           Cardano.Timeseries.Store.Flat       (Flat,
-                                                      Point (instant, name))
-import           Cardano.Timeseries.Store.Parser     (points)
+import           Cardano.Timeseries.Store.Flat           (Flat,
+                                                          Point (instant, name))
+import           Cardano.Timeseries.Store.Parser         (points)
 
-import           Cardano.Logging.Resources           (ResourceStats,
-                                                      Resources (..),
-                                                      readResourceStats)
-import           Cardano.Timeseries.Store.Tree       (fromFlat)
-import           Control.DeepSeq                     (force)
-import           Control.Monad                       (forever)
-import           Control.Monad.Except                (runExceptT)
-import           Control.Monad.State.Strict          (evalState)
-import           Data.Attoparsec                     (skipMany)
-import           Data.Attoparsec.Text                (decimal, endOfInput,
-                                                      parseOnly, space)
-import           Data.Foldable                       (for_, traverse_)
-import           Data.Text                           (pack)
-import           GHC.List                            (foldl')
-import           System.Exit                         (die)
-import           System.IO                           (hFlush, stdout)
+import           Cardano.Logging.Resources               (ResourceStats,
+                                                          Resources (..),
+                                                          readResourceStats)
+import           Cardano.Timeseries.Query.Types          (Error)
+import           Cardano.Timeseries.Store.Tree           (fromFlat)
+import           Control.DeepSeq                         (force)
+import           Control.Monad                           (forever)
+import           Control.Monad.Except                    (runExceptT)
+import           Control.Monad.State.Strict              (evalState)
+import           Data.Foldable                           (for_, traverse_)
+import qualified Data.Map                                as Map
+import           Data.Text                               (pack)
+import           GHC.List                                (foldl')
+import           System.Exit                             (die)
+import           System.IO                               (hFlush, stdout)
+import           Text.Megaparsec                         hiding (count)
+import           Text.Megaparsec.Char                    (space)
 
 snapshotsFile :: String
-snapshotsFile = "data/6nodes_4hours_1mininterval.cbor"
+snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
 
 printStore :: Flat Double -> IO ()
 printStore = traverse_ print
@@ -56,14 +58,26 @@ interactive store = forever $ do
  putStr "> "
  hFlush stdout
  queryString <- getLine
- case parseOnly (expr <* skipMany space <* endOfInput) (pack queryString) of
-   Left err -> putStrLn err
+ case parse (expr <* space <* eof) "input" (pack queryString) of
+   Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
      putStrLn ("Expr: " <> show query)
      printQueryResult (evalState (runExceptT $ interp store mempty query 0) 0)
 
+main1 :: IO ()
+main1 = do
+  content <- readFileSnapshots snapshotsFile
+  putStrLn "Read the snapshots file!"
+  let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
+  putStrLn "Created a store!"
+  putStrLn "Metrics:"
+  for_ (Map.keys store) (\k -> putStrLn ("  — " <> k))
+  interactive store
+
 main :: IO ()
 main = do
-  content <- readFileSnapshots snapshotsFile
-  let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
-  interactive store
+ queryString <- getLine
+ case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
+   Left err -> putStrLn (errorBundlePretty err)
+   Right query -> do
+     putStrLn ("Expr: " <> show query)

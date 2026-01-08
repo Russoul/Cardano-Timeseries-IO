@@ -6,34 +6,41 @@ module Cardano.Timeseries.Query.Parser(expr) where
 import           Cardano.Timeseries.Domain.Identifier (Identifier (User))
 import           Cardano.Timeseries.Query.Expr
 
-import           Control.Applicative ((<|>))
-import           Control.Monad (guard)
-import           Data.Attoparsec.ByteString.Char8 (isDigit)
-import           Data.Attoparsec.Combinator
-import           Data.Attoparsec.Text (Parser, double, satisfy, space, string)
-import           Data.Char (isAlpha)
-import           Data.Functor (void)
-import           Data.List.NonEmpty (fromList)
-import           GHC.Unicode (isControl)
+import           Control.Monad                        (guard)
+import           Data.Char                            (isAlpha, isAlphaNum)
+import           Data.Functor                         (void)
+import           Data.List.NonEmpty                   (NonEmpty ((:|)),
+                                                       fromList)
+import           Data.Scientific                      (toRealFloat)
+import           Data.Text                            (Text)
+import           Data.Void                            (Void)
+import           GHC.Unicode                          (isControl)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char                 (char, space, space1,
+                                                       string)
+import           Text.Megaparsec.Char.Lexer           (scientific, signed)
+import           Text.Megaparsec.Debug                (dbg)
+
+type Parser = Parsec Void Text
 
 keywords :: [String]
 keywords = ["let", "in"]
 
 variableIdentifier :: Parser String
-variableIdentifier = (:) <$> firstChar <*> many' nextChar where
+variableIdentifier = (:) <$> firstChar <*> many nextChar <?> "identifier" where
   firstChar :: Parser Char
   firstChar = satisfy (\x -> isAlpha x || x == '_')
 
   nextChar :: Parser Char
-  nextChar = satisfy (\x -> isAlpha x || x == '_' || isDigit x)
+  nextChar = satisfy (\x -> isAlphaNum x || x == '_')
 
 number :: Parser Expr
-number = Number <$> double
+number = Number . toRealFloat <$> signed (pure ()) scientific <?> "number"
 
 escapedVariable :: Parser String
-escapedVariable = string "`" *> many' char <* string "`" where
-  char :: Parser Char
-  char = satisfy (\x -> not (isControl x) && (x /= '`') && (x /= '\n') && (x /= '\r'))
+escapedVariable = char '`' *> manyTill one (char '`') where
+  one :: Parser Char
+  one = satisfy (\x -> not (isControl x) && (x /= '`') && (x /= '\n') && (x /= '\r'))
 
 literalVariable :: Parser String
 literalVariable = do
@@ -45,9 +52,9 @@ variable :: Parser Expr
 variable = Variable . User <$> (literalVariable <|> escapedVariable)
 
 str :: Parser Expr
-str = Str <$> (string "\"" *> many' char <* string "\"") where
-  char :: Parser Char
-  char = satisfy (\x -> not (isControl x) && (x /= '"') && (x /= '\n') && (x /= '\r'))
+str = Str <$> (char '\"' *> many one) <* char '\"' where
+  one :: Parser Char
+  one = satisfy (\x -> not (isControl x) && (x /= '"') && (x /= '\n') && (x /= '\r'))
 
 function :: Parser Function
 function =
@@ -101,6 +108,8 @@ function =
        <|> LteInstantVectorScalar   <$ string "lte_instant_vector_scalar"
        <|> GtInstantVectorScalar    <$ string "gt_instant_vector_scalar"
        <|> GteInstantVectorScalar   <$ string "gte_instant_vector_scalar"
+       <|> Earliest                 <$ string "earliest"
+       <|> Latest                   <$ string "latest"
 
 builtin :: Parser Expr
 builtin = Builtin <$> function
@@ -108,33 +117,35 @@ builtin = Builtin <$> function
 application :: Parser Expr
 application = do
   f <- expr1
-  args <- many1 (many1 space *> expr1)
-  pure $ Application f (fromList args)
+  args <- many (try (space1 *> expr1))
+  pure $ case args of
+    []     -> f
+    x : xs -> Application f (x :| xs)
 
 lambda :: Parser Expr
 lambda = do
   void $ string "\\"
-  skipMany space
+  space
   x <- variableIdentifier
-  skipMany space
+  space
   void $ string "->"
-  skipMany space
+  space
   body <- expr
   pure $ Lambda (User x) body
 
 let_ :: Parser Expr
 let_ = do
   void $ string "let"
-  skipMany space
-  x <- variableIdentifier <?> "let-var"
-  skipMany space
+  space
+  x <- variableIdentifier
+  space
   void $ string "="
-  skipMany space
-  rhs <- expr <?> "let-rhs"
-  skipMany space
+  space
+  rhs <- expr
+  space
   void $ string "in"
-  skipMany space
-  body <- expr <?> "let-body"
+  space
+  body <- expr
   pure $ Let (User x) rhs body
 
 continueTight :: Expr -> Parser Expr
@@ -143,22 +154,22 @@ continueTight a = a <$ string ")"
 continuePair :: Expr -> Parser Expr
 continuePair a = do
   void $ string ","
-  skipMany space
+  space
   b <- expr
-  skipMany space
+  space
   void $ string ")"
   pure (MkPair a b)
 
 tightOrPair :: Parser Expr
 tightOrPair = do
   void $ string "("
-  skipMany space
+  space
   a <- expr
-  skipMany space
-  continueTight a <|> continuePair a
+  space
+  try (continuePair a) <|> continueTight a
 
 expr1 :: Parser Expr
 expr1 = number <|> builtin <|> variable <|> str <|> tightOrPair
 
 expr :: Parser Expr
-expr = let_ <|> lambda <|> application <|> number <|> variable <|> str <|> tightOrPair
+expr = let_ <|> lambda <|> application <?> "expression"
