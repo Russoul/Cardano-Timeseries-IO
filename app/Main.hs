@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{- HLINT ignore "Use print" -}
 
 module Main where
 
@@ -21,15 +22,16 @@ import           Cardano.Timeseries.Store.Tree           (fromFlat)
 import           Control.DeepSeq                         (force)
 import           Control.Monad                           (forever)
 import           Control.Monad.Except                    (runExceptT)
-import           Control.Monad.State.Strict              (evalState)
+import           Control.Monad.State.Strict              (evalState, runState)
 import           Data.Foldable                           (for_, traverse_)
 import qualified Data.Map                                as Map
-import           Data.Text                               (pack)
+import           Data.Text                               (pack, unpack)
 import           GHC.List                                (foldl')
 import           System.Exit                             (die)
 import           System.IO                               (hFlush, stdout)
 import           Text.Megaparsec                         hiding (count)
 import           Text.Megaparsec.Char                    (space)
+import Cardano.Timeseries.Query.Surface.Elab (elab, initialSt)
 
 snapshotsFile :: String
 snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
@@ -74,6 +76,14 @@ main1 = do
   for_ (Map.keys store) (\k -> putStrLn ("  — " <> k))
   interactive store
 
+main2 :: IO ()
+main2 = do
+ queryString <- getLine
+ case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
+   Left err -> putStrLn (errorBundlePretty err)
+   Right query -> do
+     putStrLn ("Expr: " <> show query)
+
 main :: IO ()
 main = do
  queryString <- getLine
@@ -81,3 +91,7 @@ main = do
    Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
      putStrLn ("Expr: " <> show query)
+     case evalState (runExceptT (elab query)) initialSt of
+       Left err -> die (unpack err)
+       Right expr -> putStrLn (show expr)
+

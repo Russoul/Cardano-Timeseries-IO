@@ -325,4 +325,4 @@ ls : Set Label
 q : Scalar
 v : InstantVector Scalar
 ----------------------------------------- ✗
-quantile-by ls q v : InstantVector Scalar
+quantile_by ls q v : InstantVector Scalar

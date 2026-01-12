@@ -7,7 +7,7 @@ module Cardano.Timeseries.Query.BinaryRelation(
 import           Cardano.Timeseries.Query.Expr (Function (..))
 
 -- | A datatype used to carve out a subset of `Function` that represents binary relations.
-data BinaryRelation = Eq | Lt | Lte | Gt | Gte | NotEq
+data BinaryRelation = Eq | Lt | Lte | Gt | Gte | NotEq deriving (Show, Eq, Ord)
 
 embedScalar :: BinaryRelation -> Function
 embedScalar Eq    = EqScalar

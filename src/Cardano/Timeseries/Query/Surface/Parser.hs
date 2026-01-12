@@ -30,7 +30,7 @@ import           Text.Megaparsec.Char.Lexer            (decimal, scientific,
 type Parser = Parsec Void Text
 
 keywords :: [String]
-keywords = ["let", "in"]
+keywords = ["let", "in", "true", "false", "epoch", "now"]
 
 unescapedVariableIdentifier :: Parser String
 unescapedVariableIdentifier = (:) <$> firstChar <*> many nextChar <?> "identifier" where
@@ -86,6 +86,12 @@ now = Now <$ string "now"
 epoch :: Parser Expr
 epoch = Now <$ string "epoch"
 
+true :: Parser Expr
+true = Truth <$ string "true"
+
+false :: Parser Expr
+false = Falsity <$ string "false"
+
 continueTight :: Expr -> Parser Expr
 continueTight a = a <$ string ")"
 
@@ -108,9 +114,11 @@ tightOrPair = do
 
 exprAtom :: Parser Expr
 exprAtom = tightOrPair
-       <|> variable
        <|> epoch
+       <|> true
+       <|> false
        <|> now
+       <|> variable
        <|> try milliseconds
        <|> try seconds
        <|> try minutes
@@ -194,6 +202,7 @@ head =
     <|> Head.QuantileBy <$> (string "quantile_by" *> space1 *> setLabel)
     <|> Head.Earliest <$> (string "earliest" *> space1 *> variableIdentifier)
     <|> Head.Latest <$> (string "latest" *> space1 *> variableIdentifier)
+    <|> Head.ToScalar <$ string "to_scalar"
 
 applyBuiltin :: Head -> [Expr] -> Parser Expr
 applyBuiltin Head.Fst [t] = pure $ Fst t
@@ -234,6 +243,8 @@ applyBuiltin (Head.Earliest x) [] = pure $ Earliest x
 applyBuiltin (Head.Earliest _) args = fail "Wrong number of arguments for `earliest`"
 applyBuiltin (Head.Latest x) [] = pure $ Latest x
 applyBuiltin (Head.Latest _) args = fail "Wrong number of arguments for `latest`"
+applyBuiltin Head.ToScalar [t] = pure $ ToScalar t
+applyBuiltin Head.ToScalar args = fail "Wrong number of arguments for `to_scalar`"
 
 apply :: Either Head Expr -> [Expr] -> Parser Expr
 apply (Left t)  = applyBuiltin t

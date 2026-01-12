@@ -59,7 +59,19 @@ import Data.Text (Text)
 -- universe < and
 -- universe < or
 
--- t{atom} ::= (t{≥ universe}, t{≥ universe}) | x | epoch | now | <int>ms | <int>s | <int> min | <int>h | (t{≥ universe}) | <float> | <string>
+-- t{atom} ::= (t{≥ universe}, t{≥ universe})
+--           | x
+--           | epoch
+--           | now
+--           | true
+--           | false
+--           | <int>ms
+--           | <int>s
+--           | <int>min
+--           | <int>h
+--           | (t{≥ universe})
+--           | <float>
+--           | "<string>"
 -- t{not} ::= !t{> not}
 -- t{range} ::= t{> range} [̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅ ̅|̅ ̅t̅[̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅ ̅:̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅
 -- t{app} ::= fst t{> app} | snd t{> app} | filter_by_label {s = s, ..., s = s} t{> app}
@@ -76,6 +88,7 @@ import Data.Text (Text)
 --            | quantile_by (s, ..., s) t{> app} t{> app}
 --            | earliest x
 --            | latest x
+--            | to_scalar t{> app}
 --            | t{> app} t̅{̅>̅ ̅a̅p̅p̅}̅
 -- t{mul} ::= t{> mul} *̅|̅/̅ ̅t̅{̅>̅ ̅m̅u̅l̅}̅
 -- t{add} ::= t{> add} +̅|̅-̅ ̅t̅{̅>̅ ̅a̅d̅d̅}̅
@@ -129,9 +142,12 @@ data Expr =
   | QuantileBy (Set Label) Expr Expr
   | Earliest Identifier
   | Latest Identifier
+  | ToScalar Expr
   | Variable Identifier
   | Str String
   | Number Double
+  | Truth
+  | Falsity
   | App Expr Expr deriving (Show)
 
 mkRange :: Expr -> (Expr, Expr, Maybe Expr) -> Expr

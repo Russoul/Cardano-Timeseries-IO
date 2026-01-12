@@ -1,6 +1,7 @@
 module Cardano.Timeseries.Query.Expr(Function(..), Expr(..)) where
-import Cardano.Timeseries.Domain.Identifier (Identifier)
-import Data.List.NonEmpty (NonEmpty)
+import           Cardano.Timeseries.Domain.Identifier (Identifier)
+import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
+import           Data.List.NonEmpty                   (NonEmpty)
 
 {- f ::= <floating-point>
  - x ::= <identifier>
@@ -143,4 +144,5 @@ data Expr = Number Double
           | Application Expr (NonEmpty Expr)
           | Lambda Identifier Expr
           | Let Identifier Expr Expr
-          | MkPair Expr Expr deriving Show
+          | MkPair Expr Expr
+          | Hole HoleIdentifier deriving Show
