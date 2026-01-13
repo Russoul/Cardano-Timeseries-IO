@@ -1,14 +1,14 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {- HLINT ignore "Use <$>" -}
-module Cardano.Timeseries.Query.Surface.Parser(expr) where
+module Cardano.Timeseries.Surface.Expr.Parser(expr) where
 
 import           Cardano.Timeseries.Domain.Identifier  (Identifier (User))
-import           Cardano.Timeseries.Query.Surface.Expr
+import           Cardano.Timeseries.Surface.Expr
 import           Control.Applicative                   hiding (many, some)
 
 import           Cardano.Timeseries.Domain.Types       (Label, Labelled)
-import           Cardano.Timeseries.Query.Surface.Head (Head)
-import qualified Cardano.Timeseries.Query.Surface.Head as Head
+import           Cardano.Timeseries.Surface.Expr.Head (Head)
+import qualified Cardano.Timeseries.Surface.Expr.Head as Head
 import           Control.Monad                         (guard)
 import           Data.Char                             (isAlpha, isAlphaNum)
 import           Data.Functor                          (void)

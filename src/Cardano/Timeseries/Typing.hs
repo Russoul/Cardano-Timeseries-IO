@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Query.Surface.Types(
+module Cardano.Timeseries.Typing(
   Ty(..),
   Binding(..),
   Context,
@@ -16,6 +16,7 @@ import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
 import           Data.Text                            (Text)
 
+-- | Typing of a query expression.
 data Ty = InstantVector Ty
         | RangeVector Ty
         | Scalar
@@ -26,6 +27,7 @@ data Ty = InstantVector Ty
         | Fun Ty Ty
         | Hole HoleIdentifier deriving (Show, Eq)
 
+-- | A context entry of a typing context.
 data Binding = LetBinding Identifier Semantic.Expr Ty
              | LambdaBinding Identifier Ty deriving (Show)
 
@@ -38,12 +40,15 @@ ty (LetBinding _ _ typ)  = typ
 ty (LambdaBinding _ typ) = typ
 
 -- | Γ
+--   A typing context of a query expression.
 type Context = SnocList Binding
 
 -- | (? type) | (? ≔ T type) | (? : T) | (? ≔ t : T)
+--   Definition of a type- or expression- level hole.
 data Def = TyHoleDecl | TyHoleInst Ty | ExprHoleDecl Ty | ExprHoleInst Semantic.Expr Ty
 
 -- | Σ
+--   A collection of hole definitions `Def` indexed by `HoleIdentifier`.
 type Defs = Map HoleIdentifier Def
 
 -- | Assumes that the given `Defs` contains a `TyHoleDecl` of the given `HoleIdentifier`.

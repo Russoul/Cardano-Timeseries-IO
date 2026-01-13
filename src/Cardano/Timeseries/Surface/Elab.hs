@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes  #-}
 {-# LANGUAGE ViewPatterns #-}
-module Cardano.Timeseries.Query.Surface.Elab(initialSt, St(..), ElabM, elab) where
+module Cardano.Timeseries.Surface.Elab(initialSt, St(..), ElabM, elab) where
 import           Cardano.Timeseries.Data.Pair                (Pair (..))
 import           Cardano.Timeseries.Data.SnocList
 import           Cardano.Timeseries.Domain.Identifier        (Identifier)
@@ -10,19 +10,19 @@ import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmetic
 import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
-import qualified Cardano.Timeseries.Query.Surface.Expr       as Surface
-import qualified Cardano.Timeseries.Query.Surface.Resolve    as Resolve
-import           Cardano.Timeseries.Query.Surface.Types      (Binding (..),
+import           Cardano.Timeseries.Query.Types              (HoleIdentifier)
+import           Cardano.Timeseries.Resolve
+import qualified Cardano.Timeseries.Surface.Expr             as Surface
+import           Cardano.Timeseries.Surface.Unify            (UnificationProblem (..),
+                                                              UnifyM)
+import qualified Cardano.Timeseries.Surface.Unify            as Unify
+import           Cardano.Timeseries.Typing                   (Binding (..),
                                                               Context, Def (..),
                                                               Defs,
                                                               Ty (Bool, Duration, Fun, Hole, InstantVector, RangeVector, Scalar, Timestamp),
                                                               instantiateExpr)
-import qualified Cardano.Timeseries.Query.Surface.Types      as Ty
-import qualified Cardano.Timeseries.Query.Surface.Types      as Types
-import           Cardano.Timeseries.Query.Surface.Unify      (UnificationProblem (..),
-                                                              UnifyM)
-import qualified Cardano.Timeseries.Query.Surface.Unify      as Unify
-import           Cardano.Timeseries.Query.Types              (HoleIdentifier)
+import qualified Cardano.Timeseries.Typing                   as Ty
+import qualified Cardano.Timeseries.Typing                   as Types
 import           Control.Monad                               (when)
 import           Control.Monad.Except                        (ExceptT,
                                                               liftEither,
@@ -47,9 +47,9 @@ data GeneralElabProblem = GeneralElabProblem {
   gpholeTy  :: Ty
 } deriving (Show)
 
-evalGeneralElabProblem :: GeneralElabProblem -> UnifyM GeneralElabProblem
-evalGeneralElabProblem (GeneralElabProblem gam tm hole holeTy) =
-  GeneralElabProblem <$> Unify.evalContext gam <*> pure tm <*> pure hole <*> Unify.eval holeTy
+evalGeneralElabProblem :: Defs -> GeneralElabProblem -> GeneralElabProblem
+evalGeneralElabProblem defs (GeneralElabProblem gam tm hole holeTy) =
+  GeneralElabProblem (resolveContext defs gam) tm hole (resolveTy defs holeTy)
 
 -- | Γ ⊦ ((t : T) R (t : T)) ~> ? : T
 data BinaryRelationElabProblem = BinaryRelationElabProblem {
@@ -63,17 +63,17 @@ data BinaryRelationElabProblem = BinaryRelationElabProblem {
   brpholeTy :: Ty
 } deriving (Show)
 
-evalBinaryRelationElabProblem :: BinaryRelationElabProblem -> UnifyM BinaryRelationElabProblem
-evalBinaryRelationElabProblem (BinaryRelationElabProblem gam lhs lhsTy rel rhs rhsTy hole holeTy) =
+evalBinaryRelationElabProblem :: Defs -> BinaryRelationElabProblem -> BinaryRelationElabProblem
+evalBinaryRelationElabProblem defs (BinaryRelationElabProblem gam lhs lhsTy rel rhs rhsTy hole holeTy) =
   BinaryRelationElabProblem
-    <$> Unify.evalContext gam
-    <*> pure lhs
-    <*> Unify.eval lhsTy
-    <*> pure rel
-    <*> pure rhs
-    <*> Unify.eval rhsTy
-    <*> pure hole
-    <*> Unify.eval holeTy
+    (resolveContext defs gam)
+    lhs
+    (resolveTy defs lhsTy)
+    rel
+    rhs
+    (resolveTy defs rhsTy)
+    hole
+    (resolveTy defs holeTy)
 
 -- | Γ ⊦ (t R t) ~> ? : t
 data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
@@ -87,17 +87,17 @@ data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
   baopholeTy :: Ty
 } deriving (Show)
 
-evalBinaryArithmethicOpElabProblem :: BinaryArithmeticOpElabProblem -> UnifyM BinaryArithmeticOpElabProblem
-evalBinaryArithmethicOpElabProblem (BinaryArithmeticOpElabProblem gam lhs lhsTy op rhs rhsTy hole holeTy) =
+evalBinaryArithmethicOpElabProblem :: Defs -> BinaryArithmeticOpElabProblem -> BinaryArithmeticOpElabProblem
+evalBinaryArithmethicOpElabProblem defs (BinaryArithmeticOpElabProblem gam lhs lhsTy op rhs rhsTy hole holeTy) =
   BinaryArithmeticOpElabProblem
-    <$> Unify.evalContext gam
-    <*> pure lhs
-    <*> Unify.eval lhsTy
-    <*> pure op
-    <*> pure rhs
-    <*> Unify.eval rhsTy
-    <*> pure hole
-    <*> Unify.eval holeTy
+    (resolveContext defs gam)
+    lhs
+    (resolveTy defs lhsTy)
+    op
+    rhs
+    (resolveTy defs rhsTy)
+    hole
+    (resolveTy defs holeTy)
 
 -- | Γ ⊦ to_scalar (t : T) ~> ?
 data ToScalarElabProblem = ToScalarElabProblem {
@@ -107,24 +107,24 @@ data ToScalarElabProblem = ToScalarElabProblem {
   tsephole  :: HoleIdentifier
 } deriving (Show)
 
-evalToScalarElabProblem :: ToScalarElabProblem -> UnifyM ToScalarElabProblem
-evalToScalarElabProblem (ToScalarElabProblem gam expr exprTy hole) =
+evalToScalarElabProblem :: Defs -> ToScalarElabProblem -> ToScalarElabProblem
+evalToScalarElabProblem defs (ToScalarElabProblem gam expr exprTy hole) =
   ToScalarElabProblem
-    <$> Unify.evalContext gam
-    <*> pure expr
-    <*> Unify.eval exprTy
-    <*> pure hole
+    (resolveContext defs gam)
+    expr
+    (resolveTy defs exprTy)
+    hole
 
 data ElabProblem = General GeneralElabProblem
                  | BinaryRelation BinaryRelationElabProblem
                  | BinaryArithmeticOp BinaryArithmeticOpElabProblem
                  | ToScalar ToScalarElabProblem deriving (Show)
 
-evalElabProblem :: ElabProblem -> UnifyM ElabProblem
-evalElabProblem (General p) = General <$> evalGeneralElabProblem p
-evalElabProblem (BinaryRelation p) = BinaryRelation <$> evalBinaryRelationElabProblem p
-evalElabProblem (BinaryArithmeticOp p) = BinaryArithmeticOp <$> evalBinaryArithmethicOpElabProblem p
-evalElabProblem (ToScalar p) = ToScalar <$> evalToScalarElabProblem p
+evalElabProblem :: Defs -> ElabProblem -> ElabProblem
+evalElabProblem defs (General p) = General (evalGeneralElabProblem defs p)
+evalElabProblem defs (BinaryRelation p) = BinaryRelation (evalBinaryRelationElabProblem defs p)
+evalElabProblem defs (BinaryArithmeticOp p) = BinaryArithmeticOp (evalBinaryArithmethicOpElabProblem defs p)
+evalElabProblem defs (ToScalar p) = ToScalar (evalToScalarElabProblem defs p)
 
 data St = St {
   defs               :: Defs,
@@ -728,21 +728,29 @@ solveGeneralElabProblem gam s x typ = throwError [i| Do not know how to elaborat
 
 solveElabProblem :: ElabProblem -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
 solveElabProblem (General (GeneralElabProblem gam s h typ)) = do
-  typ' <- runUnifyM(Unify.eval typ)
-  Just <$> solveGeneralElabProblem gam s h typ'
+  defs <- defs <$> get
+  let typ' = resolveTy defs typ
+  let gam' = resolveContext defs gam
+  Just <$> solveGeneralElabProblem gam' s h typ'
 solveElabProblem (BinaryArithmeticOp (BinaryArithmeticOpElabProblem gam lhs lhsTy op rhs rhsTy hole holeTy)) = do
-  lhsTy' <- runUnifyM(Unify.eval lhsTy)
-  rhsTy' <- runUnifyM(Unify.eval rhsTy)
-  holeTy' <- runUnifyM(Unify.eval holeTy)
-  solveBinaryArithmeticOpElabProblem gam lhs lhsTy' op rhs rhsTy' hole holeTy'
+  defs <- defs <$> get
+  let gam' = resolveContext defs gam
+  let lhsTy' = resolveTy defs lhsTy
+  let rhsTy' = resolveTy defs rhsTy
+  let holeTy' = resolveTy defs holeTy
+  solveBinaryArithmeticOpElabProblem gam' lhs lhsTy' op rhs rhsTy' hole holeTy'
 solveElabProblem (BinaryRelation (BinaryRelationElabProblem gam lhs lhsTy rel rhs rhsTy hole holeTy)) = do
-  lhsTy' <- runUnifyM(Unify.eval lhsTy)
-  rhsTy' <- runUnifyM(Unify.eval rhsTy)
-  holeTy' <- runUnifyM(Unify.eval holeTy)
-  solveBinaryRelationElabProblem gam lhs lhsTy' rel rhs rhsTy' hole holeTy'
+  defs <- defs <$> get
+  let gam' = resolveContext defs gam
+  let lhsTy' = resolveTy defs lhsTy
+  let rhsTy' = resolveTy defs rhsTy
+  let holeTy' = resolveTy defs holeTy
+  solveBinaryRelationElabProblem gam' lhs lhsTy' rel rhs rhsTy' hole holeTy'
 solveElabProblem (ToScalar (ToScalarElabProblem gam t tTy hole)) = do
-  tTy' <- runUnifyM(Unify.eval tTy)
-  solveToScalarElabProblem gam t tTy' hole
+  defs <- defs <$> get
+  let gam' = resolveContext defs gam
+  let tTy' = resolveTy defs tTy
+  solveToScalarElabProblem gam' t tTy' hole
 
 solveH :: Bool -> SnocList ElabProblem -> [ElabProblem] -> ElabM (Bool, SnocList ElabProblem)
 solveH progress stuck [] = pure (progress, stuck)
@@ -757,7 +765,8 @@ solve problems =
   solveH False Lin problems >>= \case
     (True, stuck) -> solve (toList stuck)
     (False, stuck) -> do
-      toShow <- runUnifyM $ traverse evalElabProblem (toList stuck)
+      defs <- defs <$> get
+      let toShow = fmap (evalElabProblem defs) (toList stuck)
       throwError [i| Can't solve elaboration problems: #{show toShow} |]
 
 elab :: Surface.Expr -> ElabM Semantic.Expr
@@ -766,4 +775,4 @@ elab expr = do
   t <- freshExprHole (Hole typ)
   solve [General $ GeneralElabProblem Lin expr t (Hole typ)]
   ds <- getDefs <$> get
-  pure $ Resolve.eval ds (Semantic.Hole t)
+  pure $ resolveExpr' ds (Semantic.Hole t)

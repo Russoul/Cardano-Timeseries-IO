@@ -12,6 +12,7 @@ import Data.Set (Set)
 stalenessConstant :: Word64
 stalenessConstant = 5 * 60 * 1000
 
+-- | A type-class witnessing that `s` is a metric-store of `a`.
 class Store s a | s -> a where
   -- | Insert an instant into the store under a metric name.
   insert :: s -> MetricIdentifier -> Instant a -> s
@@ -20,12 +21,16 @@ class Store s a | s -> a where
   -- | points in the store sharing a series.
   evaluate :: s -> MetricIdentifier -> Timestamp -> InstantVector a
 
+  -- | Find the earliest occurrence of the metric in the store, if any.
   earliest :: s -> MetricIdentifier -> Maybe Timestamp
 
+  -- | Find the latest occurrence of the metric in the store, if any.
   latest :: s -> MetricIdentifier -> Maybe Timestamp
 
+  -- | An empty store.
   new :: s
 
+  -- A set of metric identifies in the store.
   metrics :: s -> Set MetricIdentifier
 
   -- | Total number of (<metric>, <labels>, <timestamp>, <value>) tuples.

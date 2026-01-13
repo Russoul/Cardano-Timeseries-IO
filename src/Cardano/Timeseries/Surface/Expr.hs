@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Query.Surface.Expr(Expr(..), mkRange, mkApp) where
+module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)

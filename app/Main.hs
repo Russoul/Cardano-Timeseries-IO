@@ -5,33 +5,33 @@
 module Main where
 
 import           Cardano.Timeseries.Import.PlainCBOR
-import           Cardano.Timeseries.Query                (interp)
-import           Cardano.Timeseries.Query.Parser         (expr)
-import           qualified Cardano.Timeseries.Query.Surface.Parser as Surface.Parser
-import           Cardano.Timeseries.Query.Value          (Value)
+import           Cardano.Timeseries.Interp              (interp)
+import           Cardano.Timeseries.Interp.Value        (Value)
+import           Cardano.Timeseries.Query.Expr.Parser   (expr)
 import           Cardano.Timeseries.Store
-import           Cardano.Timeseries.Store.Flat           (Flat,
-                                                          Point (instant, name))
-import           Cardano.Timeseries.Store.Parser         (points)
+import           Cardano.Timeseries.Store.Flat          (Flat,
+                                                         Point (instant, name))
+import           Cardano.Timeseries.Store.Flat.Parser   (points)
+import qualified Cardano.Timeseries.Surface.Expr.Parser as Surface.Parser
 
-import           Cardano.Logging.Resources               (ResourceStats,
-                                                          Resources (..),
-                                                          readResourceStats)
-import           Cardano.Timeseries.Query.Types          (Error)
-import           Cardano.Timeseries.Store.Tree           (fromFlat)
-import           Control.DeepSeq                         (force)
-import           Control.Monad                           (forever)
-import           Control.Monad.Except                    (runExceptT)
-import           Control.Monad.State.Strict              (evalState, runState)
-import           Data.Foldable                           (for_, traverse_)
-import qualified Data.Map                                as Map
-import           Data.Text                               (pack, unpack)
-import           GHC.List                                (foldl')
-import           System.Exit                             (die)
-import           System.IO                               (hFlush, stdout)
-import           Text.Megaparsec                         hiding (count)
-import           Text.Megaparsec.Char                    (space)
-import Cardano.Timeseries.Query.Surface.Elab (elab, initialSt)
+import           Cardano.Logging.Resources              (ResourceStats,
+                                                         Resources (..),
+                                                         readResourceStats)
+import           Cardano.Timeseries.Query.Types         (Error)
+import           Cardano.Timeseries.Store.Tree          (fromFlat)
+import           Cardano.Timeseries.Surface.Elab        (elab, initialSt)
+import           Control.DeepSeq                        (force)
+import           Control.Monad                          (forever)
+import           Control.Monad.Except                   (runExceptT)
+import           Control.Monad.State.Strict             (evalState, runState)
+import           Data.Foldable                          (for_, traverse_)
+import qualified Data.Map                               as Map
+import           Data.Text                              (pack, unpack)
+import           GHC.List                               (foldl')
+import           System.Exit                            (die)
+import           System.IO                              (hFlush, stdout)
+import           Text.Megaparsec                        hiding (count)
+import           Text.Megaparsec.Char                   (space)
 
 snapshotsFile :: String
 snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
@@ -92,6 +92,6 @@ main = do
    Right query -> do
      putStrLn ("Expr: " <> show query)
      case evalState (runExceptT (elab query)) initialSt of
-       Left err -> die (unpack err)
+       Left err   -> die (unpack err)
        Right expr -> putStrLn (show expr)
 

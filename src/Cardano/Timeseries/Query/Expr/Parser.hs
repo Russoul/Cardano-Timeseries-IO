@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
 
-module Cardano.Timeseries.Query.Parser(expr) where
+module Cardano.Timeseries.Query.Expr.Parser(expr) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier (User))
 import           Cardano.Timeseries.Query.Expr

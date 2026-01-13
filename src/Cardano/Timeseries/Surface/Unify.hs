@@ -1,16 +1,19 @@
 {- HLINT ignore "Use newtype instead of data" -}
-module Cardano.Timeseries.Query.Surface.Unify(UnificationProblem(..), St(..), UnifyM, eval, evalBinding, evalContext, unify, solve) where
-import           Cardano.Timeseries.Query.Surface.Types (Def (..), Defs,
-                                                         Ty (..), instantiateTy, Context, Binding (..))
-import           Cardano.Timeseries.Query.Types         (HoleIdentifier)
-import           Control.Monad                          (join)
-import           Control.Monad.Except                   (ExceptT, throwError)
-import           Control.Monad.State.Strict             (State, get, lift,
-                                                         state)
-import qualified Data.Map.Strict                        as Map
-import           Data.Text                              (Text, pack)
+module Cardano.Timeseries.Surface.Unify(UnificationProblem(..), St(..), UnifyM, unify, solve) where
+import           Cardano.Timeseries.Query.Types    (HoleIdentifier)
+import           Cardano.Timeseries.Typing         (Binding (..), Context,
+                                                    Def (..), Defs, Ty (..),
+                                                    instantiateTy)
+import           Cardano.Timeseries.Resolve
+import           Control.Monad                     (join)
+import           Control.Monad.Except              (ExceptT, throwError)
+import           Control.Monad.State.Strict        (State, get, lift, state)
+import qualified Data.Map.Strict                   as Map
+import           Data.Text                         (Text, pack)
 
 -- | A = B type
+--   An equation between two query types containing holes.
+--   Unification is an algorithm of finding unique solutions to such equations.
 data UnificationProblem = UnificationProblem {
   lhs :: Ty,
   rhs :: Ty
@@ -20,12 +23,12 @@ data St = St {
   defs :: Defs
 }
 
-updateDefs :: Defs -> St -> St
-updateDefs defs (St _) = St defs
-
 type Error = Text
 
 type UnifyM a = ExceptT Error (State St) a
+
+updateDefs :: Defs -> St -> St
+updateDefs defs (St _) = St defs
 
 unifyHole :: HoleIdentifier -> Ty -> UnifyM ()
 unifyHole x rhs = do
@@ -53,7 +56,9 @@ unifyNu lhs rhs =
 
 -- | Check if the given hole identifier occurs in the given type.
 occurs :: HoleIdentifier -> Ty -> UnifyM Bool
-occurs x ty = occursNu x =<< eval ty
+occurs x ty = do
+  ds <- defs <$> get
+  occursNu x (resolveTy ds ty)
 
 -- | `Ty` is assumed to be normal w.r.t. hole substitution.
 occursNu :: HoleIdentifier -> Ty -> UnifyM Bool
@@ -67,35 +72,13 @@ occursNu x Timestamp          = pure False
 occursNu x Duration           = pure False
 occursNu x (Hole x')          = pure (x == x')
 
--- | Computes the normal form of `Ty` (unfolds head holes).
-eval :: Ty -> UnifyM Ty
-eval (Hole x) = do
-  ds <- defs <$> get
-  case Map.lookup x ds of
-    Just (TyHoleInst rhs) -> eval rhs
-    Just _  -> pure $ Hole x
-    Nothing -> error $ "[INTERNAL ERROR] Can't find hole in Σ: " <> show x
-eval (InstantVector ty) = InstantVector <$> eval ty
-eval (RangeVector ty) = RangeVector <$> eval ty
-eval (Fun ty ty') = Fun <$> eval ty <*> eval ty'
-eval (Pair ty ty') = Pair <$> eval ty <*> eval ty'
-eval Scalar = pure Scalar
-eval Timestamp = pure Timestamp
-eval Duration = pure Duration
-eval Bool = pure Bool
-
-evalBinding :: Binding -> UnifyM Binding
-evalBinding (LetBinding x rhs typ) =
-  LetBinding x rhs <$> eval typ
-evalBinding (LambdaBinding x typ) =
-  LambdaBinding x <$> eval typ
-
-evalContext :: Context -> UnifyM Context
-evalContext = traverse evalBinding
-
 unify :: Ty -> Ty -> UnifyM [UnificationProblem]
-unify lhs rhs = join $ unifyNu <$> eval lhs <*> eval rhs
+unify lhs rhs = do
+  ds <- defs <$> get
+  unifyNu (resolveTy ds lhs) (resolveTy ds rhs)
 
+-- | Solve the list of unification problems, instantiating holes in the process.
+--   If a problem doesn't have a (unique) solution, throw an error.
 solve :: [UnificationProblem] -> UnifyM ()
 solve [] = pure ()
 solve (UnificationProblem lhs rhs : rest) = do

@@ -1,0 +1,369 @@
+
+x ::= <identifier>
+A, B, T ::= InstantVector T | RangeVector T | Scalar | Bool | Timestamp | Duration | (T, T) | T -> T
+Γ ::= ε | Γ (x ≔ t : T) | Γ (x : T)
+
+┌──────┐
+│A type│
+└──────┘
+
+A type
+----------------------
+InstantVector A type
+
+
+A type
+--------------------
+RangeVector A type
+
+
+Scalar type
+
+
+Bool type
+
+
+A type
+B type
+-----------
+(A, B) type
+
+A type
+B type
+------
+A -> B
+
+
+Timestamp type
+
+
+Duration type
+
+┌──────┐
+│Γ ctx │
+└──────┘
+
+ε ctx
+
+Γ ctx
+A type
+-------------
+Γ (x : A) ctx
+
+Γ ⊦ t : A
+-----------------
+Γ (x ≔ t : A) ctx
+
+┌─────────┐
+│Γ ctx    │
+│A type   │
+│---------│
+│Γ ⊦ t : A│
+└─────────┘
+
+Γ (x := t : A) ⊦ e : B
+---------------------- ✔
+Γ ⊦ let x = t in e : B
+
+
+(x : A) ⊦ t : B
+-------------------- ✔
+Γ ⊦ \x -> t : A -> B
+
+
+Γ ⊦ t : (A, B)
+-------------- ✔
+Γ ⊦ fst t : A
+
+
+Γ ⊦ t : (A, B)
+-------------- ✔
+Γ ⊦ snd t : B
+
+
+Γ ⊦ a : A
+Γ ⊦ b : B
+------------------- ✔
+Γ ⊦ (a, b) : (A, B)
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+------------------------ ✔
+Γ ⊦ eq_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+---------------------------- ✔
+Γ ⊦ not_eq_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+------------------------ ✔
+Γ ⊦ lt_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+------------------------- ✔
+Γ ⊦ lte_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+------------------------ ✔
+Γ ⊦ gt_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+------------------------- ✔
+Γ ⊦ gte_scalar a b : Bool
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+--------------------------- ✔
+Γ ⊦ add_scalar a b : Scalar
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+--------------------------- ✔
+Γ ⊦ sub_scalar a b : Scalar
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+--------------------------- ✔
+Γ ⊦ mul_scalar a b : Scalar
+
+
+Γ ⊦ a : Scalar
+Γ ⊦ b : Scalar
+--------------------------- ✔
+Γ ⊦ div_scalar a b : Scalar
+
+
+Γ ⊦ a : Bool
+---------------- ✔
+Γ ⊦ not a : Bool
+
+
+Γ ⊦ a : Bool
+Γ ⊦ b : Bool
+------------------ ✔
+Γ ⊦ and a b : Bool
+
+
+Γ ⊦ a : Bool
+Γ ⊦ b : Bool
+----------------- ✔
+Γ ⊦ or a b : Bool
+
+
+n integer // integer literal
+-----------------------------  ✔
+Γ ⊦ milliseconds n : Duration
+
+
+n integer // integer literal
+----------------------------  ✔
+Γ ⊦ seconds n : Duration
+
+
+n integer // integer literal
+----------------------------  ✔
+Γ ⊦ minutes n : Duration
+
+
+n integer // integer literal
+          // Syntax hugar: <int>h ✗
+-----------------------------------  ✔
+Γ ⊦ hours n : Duration
+
+
+Γ ⊦ epoch : Timestamp ✔
+
+
+Γ ⊦ now : Timestamp ✔
+
+
+Γ ⊦ t : Timestamp
+Γ ⊦ d : Duration
+-------------------------- ✔
+Γ ⊦ rewind t d : Timestamp
+
+
+Γ ⊦ t : Timestamp
+Γ ⊦ d : Duration
+-------------------------------- ✔
+Γ ⊦ fast_forward t d : Timestamp
+
+
+Γ ⊦ t : Timestamp
+---------------------------------- ✔
+Γ ⊦ timestamp_to_scalar t : Scalar
+
+
+Γ ⊦ t : Bool
+----------------------------- ✔
+Γ ⊦ bool_to_scalar t : Scalar
+
+
+// Given a continuous timeseries vector and an interval computes a discrete timeseries vector (range vector)
+Γ ⊦ s : Timestamp -> InstantVector a
+Γ ⊦ a : Timestamp
+Γ ⊦ b : Timestamp
+------------------------------------ ✔
+Γ ⊦ s[a; b] : RangeVector a
+
+
+// More general version with a sampling rate
+Γ ⊦ s : Timestamp -> InstantVector a
+Γ ⊦ a : Timestamp
+Γ ⊦ b : Timestamp
+Γ ⊦ d : Duration
+------------------------------------ ✔
+Γ ⊦ s[a; b : d] : RangeVector a
+
+
+// Takes a subset of the instant vector by keeping only those instants whose labels are in the provided set.
+Γ ⊦ v : InstantVector a
+Γ ⊦ l̅s̅ labels
+------------------------------------------ ✔
+Γ ⊦ filter_by_label v l̅s̅ : InstantVector a
+
+
+Γ ⊦ v : InstantVector Scalar
+---------------------------- ✔
+Γ ⊦ max v : Scalar
+
+
+Γ ⊦ v : InstantVector Scalar
+---------------------------- ✔
+Γ ⊦ min v : Scalar
+
+
+Γ ⊦ v : InstantVector Scalar
+--------------------------- ✔
+Γ ⊦ avg v : Scalar
+
+
+Γ ⊦ f : A -> Bool
+Γ ⊦ v : InstantVector A
+-------------------------------- ✔
+Γ ⊦ filter f v : InstantVector A
+
+
+Γ ⊦ u : InstantVector A
+Γ ⊦ v : InstantVector B
+----------------------------------- // 1-to-1 match is a assumed ✔
+Γ ⊦ join u v : InstantVector (A, B)
+
+
+Γ ⊦ f : A -> B
+Γ ⊦ v : InstantVector A
+----------------------------- ✔
+Γ ⊦ map f u : InstantVector B
+
+
+Γ ⊦ t : Scalar
+------------------ ✔
+Γ ⊦ abs t : Scalar
+
+
+Γ ⊦ r : RangeVector Scalar
+------------------------------------ ✔
+Γ ⊦ increase r : InstantVector Scalar
+
+
+Γ ⊦ r : RangeVector Scalar
+--------------------------------- ✔
+Γ ⊦ rate r : InstantVector Scalar
+
+
+Γ ⊦ r : RangeVector Scalar
+------------------------------------------ ✔
+Γ ⊦ avg_over_time r : InstantVector Scalar
+
+
+Γ ⊦ r : RangeVector Scalar
+------------------------------------------ ✔
+Γ ⊦ sum_over_time r : InstantVector Scalar
+
+
+Γ ⊦ q : Scalar // must be in range of [0; 1]
+Γ ⊦ r : RangeVector
+------------------------------------------------- ✔
+Γ ⊦ quantile_over_time q r : InstantVector Scalar
+
+
+Γ ⊦ u : InstantVector a
+Γ ⊦ v : InstantVector b
+-------------------------------- ✗
+Γ ⊦ unless u v : InstantVector a
+
+
+// meta-level abbreviation
+Γ ⊦ a : InstantVector Scalar
+Γ ⊦ s : Scalar
+------------------------------------------------------------ ✔
+Γ ⊦ lte_instant_vector_scalar a s : InstantVector Scalar
+    lte_instant_vector_scalar a s ≡ filter (\v -> v <= s) a
+
+
+// meta-level abbreviation
+Γ ⊦ v : InstantVector Scalar
+Γ ⊦ s : Scalar
+------------------------------------ ✗
+Γ ⊦ v <= bool s : InstantVector Bool
+v <= bool s ≡ (\x -> x <= s) v
+
+
+// meta-level definition (define via map)
+Γ ⊦ v : InstantVector Scalar
+Γ ⊦ s : Scalar
+----------------------------------------- ✗
+Γ ⊦ v / s : InstantVector Scalar
+
+
+// meta-level definition (define via map)
+Γ ⊦ v : InstantVector Scalar
+Γ ⊦ s : Scalar
+----------------------------------------- ✗
+Γ ⊦ v * s : InstantVector Scalar
+
+
+// meta-level definition (define via map)
+Γ ⊦ s : Scalar
+Γ ⊦ v : InstantVector Scalar
+----------------------------------------- ✗
+Γ ⊦ s - v : InstantVector Scalar
+
+
+// meta-level definition (define via map)
+Γ ⊦ v : InstantVector Bool
+----------------------------------------- ✗
+Γ ⊦ toScalar v : InstantVector Scalar
+
+
+Γ ⊦ ls : Set Label
+Γ ⊦ q : Scalar
+Γ ⊦ v : InstantVector Scalar
+--------------------------------------------- ✗
+Γ ⊦ quantile_by ls q v : InstantVector Scalar
+
+┌─────────┐
+│l̅s̅ labels│
+└─────────┘
+
+∅ labels
+
+s string
+s' string
+l̅s̅ labels
+-----------------
+(s, s') l̅s̅ labels

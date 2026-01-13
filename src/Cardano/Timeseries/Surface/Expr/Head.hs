@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Query.Surface.Head(Head(..)) where
+module Cardano.Timeseries.Surface.Expr.Head(Head(..)) where
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
 import           Data.Set                             (Set)

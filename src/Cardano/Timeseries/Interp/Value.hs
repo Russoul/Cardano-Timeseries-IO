@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Query.Value(Value(..), FunctionValue, fromBool) where
+module Cardano.Timeseries.Interp.Value(Value(..), FunctionValue, fromBool) where
 
 import           Cardano.Timeseries.Domain.Instant
 import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector)

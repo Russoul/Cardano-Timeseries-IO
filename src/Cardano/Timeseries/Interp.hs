@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns         #-}
-module Cardano.Timeseries.Query(interp) where
+module Cardano.Timeseries.Interp(interp) where
 import           Cardano.Timeseries.Domain.Identifier    (Identifier (..))
 import           Cardano.Timeseries.Domain.Instant       (Instant (Instant),
                                                           InstantVector, share)
@@ -18,13 +18,13 @@ import qualified Cardano.Timeseries.Domain.Timeseries    as Timeseries
 import           Cardano.Timeseries.Domain.Types         (Labelled,
                                                           MetricIdentifier,
                                                           Timestamp)
+import           Cardano.Timeseries.Interp.Value         as Value
 import           Cardano.Timeseries.Query.BinaryRelation (BinaryRelation,
                                                           embedScalar,
                                                           mbBinaryRelationInstantVector,
                                                           mbBinaryRelationScalar)
 import qualified Cardano.Timeseries.Query.BinaryRelation as BinaryRelation
 import           Cardano.Timeseries.Query.Expr           as Expr
-import           Cardano.Timeseries.Query.Value          as Value
 import           Cardano.Timeseries.Store                (Store (metrics),
                                                           earliest, latest)
 import qualified Cardano.Timeseries.Store                as Store
@@ -48,94 +48,19 @@ import qualified Data.Set                                as Set
 import           Data.Word                               (Word64)
 import           GHC.Base                                (NonEmpty ((:|)))
 
+import           Cardano.Timeseries.Interp.Expect
+import           Cardano.Timeseries.Interp.Statistics
 import           Cardano.Timeseries.Query.Types          (Error, QueryM)
 import           Statistics.Function                     (minMax)
 import           Statistics.Quantile                     (cadpw, quantile)
 import           Statistics.Sample                       (mean)
 
-join :: (a -> b -> c) -> InstantVector a -> InstantVector b -> Either Error (InstantVector c)
-join _ [] _ = Right []
-join f (inst@(Domain.Instant ls t v) : xs) other = do
+interpJoin :: (a -> b -> c) -> InstantVector a -> InstantVector b -> Either Error (InstantVector c)
+interpJoin _ [] _ = Right []
+interpJoin f (inst@(Domain.Instant ls t v) : xs) other = do
   Domain.Instant _ _ v' <- maybeToEither ("No matching label: " <> show ls) $ find (share inst) other
-  rest <- join f xs other
+  rest <- interpJoin f xs other
   Right (Domain.Instant ls t (f v v') : rest)
-
-avgOverTime :: Timestamp -> TimeseriesVector Double -> InstantVector Double
-avgOverTime at = fmap compute where
-  compute :: Timeseries Double -> Instant Double
-  compute series = Domain.Instant (Timeseries.labels series) at (mean $ Timeseries.toVector series)
-
-sumOverTime :: Timestamp -> TimeseriesVector Double -> InstantVector Double
-sumOverTime at = fmap compute where
-  compute :: Timeseries Double -> Instant Double
-  compute series = Domain.Instant (Timeseries.labels series) at (sum $ Timeseries.toVector series)
-
-expectInstantVector :: Value -> QueryM (InstantVector Value)
-expectInstantVector (Value.InstantVector v) = pure v
-expectInstantVector _ = throwError "Unexpected expression type: expected an instant vector"
-
-expectRangeVector :: Value -> QueryM (TimeseriesVector Value)
-expectRangeVector (Value.RangeVector v) = pure v
-expectRangeVector _ = throwError "Unexpected expression type: expected a range vector"
-
-expectTimeseriesScalar :: Timeseries Value -> QueryM (Timeseries Double)
-expectTimeseriesScalar = traverse expectScalar
-
-expectRangeVectorScalar :: Value -> QueryM (TimeseriesVector Double)
-expectRangeVectorScalar v = expectRangeVector v >>= traverse expectTimeseriesScalar
-
-expectInstantScalar :: Instant Value -> QueryM (Instant Double)
-expectInstantScalar = traverse expectScalar
-
-expectInstantBool :: Instant Value -> QueryM (Instant Bool)
-expectInstantBool = traverse expectBool
-
-expectInstantVectorScalar :: Value -> QueryM (InstantVector Double)
-expectInstantVectorScalar v = expectInstantVector v >>= traverse expectInstantScalar
-
-expectInstantVectorBool :: Value -> QueryM (InstantVector Bool)
-expectInstantVectorBool v = expectInstantVector v >>= traverse expectInstantBool
-
-expectPair :: Value -> QueryM (Value, Value)
-expectPair (Value.Pair a b) = pure (a, b)
-expectPair _ = throwError "Unexpected expression type: expected a pair"
-
-expectScalar :: Value -> QueryM Double
-expectScalar (Value.Scalar x) = pure x
-expectScalar _ = throwError "Unexpected expression type: expected a scalar"
-
-expectBool :: Value -> QueryM Bool
-expectBool Value.Truth = pure Prelude.True
-expectBool Value.Falsity = pure Prelude.False
-expectBool _ = throwError "Unexpected expression type: expected a bool"
-
-expectBoolean :: Value -> QueryM Bool
-expectBoolean Truth = pure Prelude.True
-expectBoolean Falsity = pure Prelude.False
-expectBoolean _ = throwError "Unexpected expression type: expected a boolean"
-
-expectDuration :: Value -> QueryM Word64
-expectDuration (Value.Duration x) = pure x
-expectDuration e = throwError "Unexpected expression type: expected a duration"
-
-expectTimestamp :: Value -> QueryM Word64
-expectTimestamp (Value.Timestamp x) = pure x
-expectTimestamp e = throwError "Unexpected expression type: expected a timestamp"
-
-expectFunction :: Value -> QueryM FunctionValue
-expectFunction (Value.Function f) = pure f
-expectFunction e = throwError "Unexpected expression type: expected a function"
-
-doubleToInteger :: Double -> QueryM Integer
-doubleToInteger x = if isWhole x then pure (truncate x) else throwError ("Expected a whole number, got: " <> show x) where
-  isWhole :: Double -> Bool
-  isWhole x = snd (properFraction x :: (Integer, Double)) == 0
-
-toWord64 :: Integer -> QueryM Word64
-toWord64 x = liftEither $ maybeToEither ("Integer is to big to fit into a 64-bit unsigned integer: " <> show x) (safeToWord64 x)
-
-toDouble :: Integer -> Either Error Double
-toDouble x = maybeToEither ("Integer is to big to fit into an IEEE 64-bit floating point" <> show x) (safeToDouble x)
 
 interpRange :: FunctionValue -> Interval -> Word64 -> QueryM (TimeseriesVector Value)
 interpRange f Interval{..} rate = transpose <$> sample start end where
@@ -185,14 +110,6 @@ interpIncrease v = liftEither $ do
   compute min max =
     let v = Instant.value max - Instant.value min in
     Instant (Instant.labels min) (Instant.timestamp max) v
-
-quantileTimeseries :: Double -> Timeseries Double -> Instant Double
-quantileTimeseries k v@Timeseries{..} =
-  let value = quantile cadpw (floor (k * 100)) 100 (Timeseries.toVector v) in
-  Instant labels (Instant.timestamp $ fromJust (Timeseries.newest v)) value
-
-quantileRangeVector :: Double -> TimeseriesVector Double -> InstantVector Double
-quantileRangeVector k = map (quantileTimeseries k)
 
 -- | (v `R` s) ≡ filter (\x -> x `R` s) v
 -- | where v : InstantVector Scalar
@@ -269,7 +186,7 @@ interp store env (Application (Builtin Filter) (toList -> [f, t])) now = do
 interp store env (Application (Builtin Join) (toList -> [a, b])) now = do
   a <- interp store env a now >>= expectInstantVector
   b <- interp store env b now >>= expectInstantVector
-  Value.InstantVector <$> liftEither (join Value.Pair a b)
+  Value.InstantVector <$> liftEither (interpJoin Value.Pair a b)
 interp store env (Application (Builtin Map) (toList -> [f, x])) now = do
   f <- interp store env f now >>= expectFunction
   x <- interp store env x now >>= expectInstantVector
@@ -302,22 +219,22 @@ interp store env (Application (Builtin DurationToScalar) (t :| [])) now = do
   t <- interp store env t now >>= expectDuration
   pure (Scalar (fromIntegral t))
 interp _ env (Application (Builtin Milliseconds) (Expr.Number t :| [])) _ =
-  Duration <$> (toWord64 <=< doubleToInteger) t
+  Duration <$> expectWord64 t
 interp _ env (Application (Builtin Seconds) (Expr.Number t :| [])) _ =
-  Duration . (1000 *) <$> (toWord64 <=< doubleToInteger) t
+  Duration . (1000 *) <$> expectWord64 t
 interp _ env (Application (Builtin Minutes) (Expr.Number t :| [])) _ =
-  Duration . (60 * 1000 *) <$> (toWord64 <=< doubleToInteger) t
+  Duration . (60 * 1000 *) <$> expectWord64 t
 interp _ env (Application (Builtin Hours) (Expr.Number t :| [])) _ =
-  Duration . (60 * 60 * 1000 *) <$> (toWord64 <=< doubleToInteger) t
+  Duration . (60 * 60 * 1000 *) <$> expectWord64 t
 interp store env (Application (Builtin AddInstantVectorScalar) (toList -> [a, b])) now = do
   va <- interp store env a now >>= expectInstantVectorScalar
   vb <- interp store env b now >>= expectInstantVectorScalar
-  v <- liftEither (join (+) va vb)
+  v <- liftEither (interpJoin (+) va vb)
   pure (Value.InstantVector (fmap (fmap Value.Scalar) v))
 interp store env (Application (Builtin MulInstantVectorScalar) (toList -> [a, b])) now = do
   va <- interp store env a now >>= expectInstantVectorScalar
   vb <- interp store env b now >>= expectInstantVectorScalar
-  v <- liftEither (join (*) va vb)
+  v <- liftEither (interpJoin (*) va vb)
   pure (Value.InstantVector (fmap (fmap Value.Scalar) v))
 interp store env (Application (Builtin Quantile) (toList -> [Expr.Number k, expr])) now = do
   v <- interp store env expr now >>= expectInstantVectorScalar
@@ -347,6 +264,9 @@ interp store env (Application (Builtin Min) (expr :| [])) now = do
 interp store env (Application (Builtin AvgOverTime) (expr :| [])) now = do
   v <- interp store env expr now >>= expectRangeVectorScalar
   pure $ Value.InstantVector (fmap Value.Scalar <$> avgOverTime now v)
+interp store env (Application (Builtin SumOverTime) (expr :| [])) now = do
+  v <- interp store env expr now >>= expectRangeVectorScalar
+  pure $ Value.InstantVector (fmap Value.Scalar <$> sumOverTime now v)
 interp store env (MkPair a b) now = do
   va <- interp store env a now
   vb <- interp store env b now

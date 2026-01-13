@@ -1,17 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Cardano.Timeseries.Store.Parser(point, points) where
+module Cardano.Timeseries.Store.Flat.Parser(point, points) where
 
 import           Cardano.Timeseries.Domain.Instant
-import           Cardano.Timeseries.Domain.Types (Labelled, MetricIdentifier, Timestamp)
-import           Cardano.Timeseries.Store.Flat (Point (..))
+import           Cardano.Timeseries.Domain.Types   (Labelled, MetricIdentifier,
+                                                    Timestamp)
+import           Cardano.Timeseries.Store.Flat     (Flat, Point (..))
 
-import           Data.Attoparsec.ByteString.Char8 (isDigit)
+import           Data.Attoparsec.ByteString.Char8  (isDigit)
 import           Data.Attoparsec.Combinator
-import           Data.Attoparsec.Text (Parser, decimal, endOfLine, satisfy, space, string)
-import           Data.Char (isAlpha)
-import           Data.Set (fromList)
-import           Data.Word (Word64)
+import           Data.Attoparsec.Text              (Parser, decimal, endOfLine,
+                                                    satisfy, space, string)
+import           Data.Char                         (isAlpha)
+import           Data.Set                          (fromList)
+import           Data.Word                         (Word64)
 
 identifier :: Parser String
 identifier = (:) <$> firstChar <*> many' nextChar where
@@ -66,5 +68,5 @@ point value = makePoint
 -- | point
 -- | ...
 -- | point
-points :: Parser a -> Parser [Point a]
+points :: Parser a -> Parser (Flat a)
 points value = sepBy' (point value) endOfLine
