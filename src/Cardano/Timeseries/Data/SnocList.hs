@@ -2,7 +2,7 @@ module Cardano.Timeseries.Data.SnocList(SnocList(..), find, toList) where
 import Cardano.Timeseries.Util (toMaybe)
 import Control.Applicative ((<|>))
 
-data SnocList a = Lin | Snoc (SnocList a) a deriving (Show, Eq, Ord, Functor)
+data SnocList a = Lin | Snoc (SnocList a) a deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
 
 find :: (a -> Bool) -> SnocList a -> Maybe a
 find f Lin = Nothing

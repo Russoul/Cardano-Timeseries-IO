@@ -37,50 +37,67 @@ import qualified Data.Map.Strict                             as Map
 import qualified Data.Set                                    as Set
 import           Data.String.Interpolate                     (i)
 import           Data.Text                                   (Text, pack)
-
-class GetGamma a where
-  gamma :: a -> Context
-
-class GetTy a where
-  ty :: a -> Ty
+import           Debug.Trace                                 (traceM)
 
 -- | Γ ⊦ s ~> ?x : A
 data GeneralElabProblem = GeneralElabProblem {
   gpgamma   :: Context,
   gpsurface :: Surface.Expr,
   gphole    :: HoleIdentifier,
-  gpty      :: Ty
+  gpholeTy  :: Ty
 } deriving (Show)
 
-instance GetGamma GeneralElabProblem where
-  gamma = gpgamma
-
-instance GetTy GeneralElabProblem where
-  ty = gpty
+evalGeneralElabProblem :: GeneralElabProblem -> UnifyM GeneralElabProblem
+evalGeneralElabProblem (GeneralElabProblem gam tm hole holeTy) =
+  GeneralElabProblem <$> Unify.evalContext gam <*> pure tm <*> pure hole <*> Unify.eval holeTy
 
 -- | Γ ⊦ ((t : T) R (t : T)) ~> ? : T
 data BinaryRelationElabProblem = BinaryRelationElabProblem {
-  brpgamma :: Context,
-  brplhs   :: Semantic.Expr,
-  brplhsTy :: Ty,
-  brprel   :: BinaryRelation.BinaryRelation,
-  brprhs   :: Semantic.Expr,
-  brprhsTy :: Ty,
-  hole     :: HoleIdentifier,
-  brpty    :: Ty
+  brpgamma  :: Context,
+  brplhs    :: Semantic.Expr,
+  brplhsTy  :: Ty,
+  brprel    :: BinaryRelation.BinaryRelation,
+  brprhs    :: Semantic.Expr,
+  brprhsTy  :: Ty,
+  brphole   :: HoleIdentifier,
+  brpholeTy :: Ty
 } deriving (Show)
+
+evalBinaryRelationElabProblem :: BinaryRelationElabProblem -> UnifyM BinaryRelationElabProblem
+evalBinaryRelationElabProblem (BinaryRelationElabProblem gam lhs lhsTy rel rhs rhsTy hole holeTy) =
+  BinaryRelationElabProblem
+    <$> Unify.evalContext gam
+    <*> pure lhs
+    <*> Unify.eval lhsTy
+    <*> pure rel
+    <*> pure rhs
+    <*> Unify.eval rhsTy
+    <*> pure hole
+    <*> Unify.eval holeTy
 
 -- | Γ ⊦ (t R t) ~> ? : t
 data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
-  baopgamma :: Context,
-  baoplhs   :: Semantic.Expr,
-  baoplhsTy :: Ty,
-  baoprel   :: BinaryArithmeticOp.BinaryArithmeticOp,
-  baoprhs   :: Semantic.Expr,
-  baoprhsTy :: Ty,
-  baope     :: HoleIdentifier,
-  baopty    :: Ty
+  baopgamma  :: Context,
+  baoplhs    :: Semantic.Expr,
+  baoplhsTy  :: Ty,
+  baopop     :: BinaryArithmeticOp.BinaryArithmeticOp,
+  baoprhs    :: Semantic.Expr,
+  baoprhsTy  :: Ty,
+  baophole   :: HoleIdentifier,
+  baopholeTy :: Ty
 } deriving (Show)
+
+evalBinaryArithmethicOpElabProblem :: BinaryArithmeticOpElabProblem -> UnifyM BinaryArithmeticOpElabProblem
+evalBinaryArithmethicOpElabProblem (BinaryArithmeticOpElabProblem gam lhs lhsTy op rhs rhsTy hole holeTy) =
+  BinaryArithmeticOpElabProblem
+    <$> Unify.evalContext gam
+    <*> pure lhs
+    <*> Unify.eval lhsTy
+    <*> pure op
+    <*> pure rhs
+    <*> Unify.eval rhsTy
+    <*> pure hole
+    <*> Unify.eval holeTy
 
 -- | Γ ⊦ to_scalar (t : T) ~> ?
 data ToScalarElabProblem = ToScalarElabProblem {
@@ -90,22 +107,24 @@ data ToScalarElabProblem = ToScalarElabProblem {
   tsephole  :: HoleIdentifier
 } deriving (Show)
 
-instance GetGamma BinaryRelationElabProblem where
-  gamma = brpgamma
-
-instance GetTy BinaryRelationElabProblem where
-  ty = brpty
-
-instance GetGamma BinaryArithmeticOpElabProblem where
-  gamma = baopgamma
-
-instance GetTy BinaryArithmeticOpElabProblem where
-  ty = baopty
+evalToScalarElabProblem :: ToScalarElabProblem -> UnifyM ToScalarElabProblem
+evalToScalarElabProblem (ToScalarElabProblem gam expr exprTy hole) =
+  ToScalarElabProblem
+    <$> Unify.evalContext gam
+    <*> pure expr
+    <*> Unify.eval exprTy
+    <*> pure hole
 
 data ElabProblem = General GeneralElabProblem
                  | BinaryRelation BinaryRelationElabProblem
                  | BinaryArithmeticOp BinaryArithmeticOpElabProblem
                  | ToScalar ToScalarElabProblem deriving (Show)
+
+evalElabProblem :: ElabProblem -> UnifyM ElabProblem
+evalElabProblem (General p) = General <$> evalGeneralElabProblem p
+evalElabProblem (BinaryRelation p) = BinaryRelation <$> evalBinaryRelationElabProblem p
+evalElabProblem (BinaryArithmeticOp p) = BinaryArithmeticOp <$> evalBinaryArithmethicOpElabProblem p
+evalElabProblem (ToScalar p) = ToScalar <$> evalToScalarElabProblem p
 
 data St = St {
   defs               :: Defs,
@@ -239,6 +258,35 @@ solveBinaryArithmeticOpElabProblem :: Context
                                    -> HoleIdentifier
                                    -> Ty
                                    -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
+solveBinaryArithmeticOpElabProblem gam lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Duration = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [rhs, lhs]))
+  pure $ Just ([], [])
+solveBinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveBinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.Rewind) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveBinaryArithmeticOpElabProblem gam d Duration BinaryArithmeticOp.Add t Timestamp hole Timestamp = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [t, d]))
+  pure $ Just ([], [])
+solveBinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Add rhs rhsTy hole typ = do
+  pure $ Just ([UnificationProblem rhsTy Duration, UnificationProblem typ Timestamp],
+               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp])
+solveBinaryArithmeticOpElabProblem gam lhs lhsTy BinaryArithmeticOp.Add rhs Timestamp hole typ = do
+  pure $ Just ([UnificationProblem lhsTy Duration, UnificationProblem typ Timestamp],
+               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Timestamp])
+solveBinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Sub rhs rhsTy hole typ = do
+  pure $ Just ([UnificationProblem rhsTy Duration, UnificationProblem typ Timestamp],
+               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp])
 solveBinaryArithmeticOpElabProblem gam lhs lhsTy@(InstantVector _) op rhs rhsTy@(InstantVector _) hole Scalar =
   throwError
     [i| Incompatibility: (#{show lhs} : #{show lhsTy}) #{prettyOp op} (#{show rhs} : #{show rhsTy}) |]
@@ -297,7 +345,6 @@ solveBinaryArithmeticOpElabProblem gam lhs lhsTy op rhs rhsTy hole holeTy = pure
 --   Assumes that the given `Ty` is normal w.r.t. hole substitution.
 solveGeneralElabProblem :: Context -> Surface.Expr -> HoleIdentifier -> Ty -> ElabM ([UnificationProblem], [ElabProblem])
 solveGeneralElabProblem gam (mbBinaryRelation -> Just (a, r, b)) x typ = do
-  let u = UnificationProblem typ Bool
   expectedA <- freshTyHole
   expectedB <- freshTyHole
   ax <- freshExprHole (Hole expectedA)
@@ -314,7 +361,7 @@ solveGeneralElabProblem gam (mbBinaryRelation -> Just (a, r, b)) x typ = do
           (Hole expectedB)
           x
           typ
-  pure ([u], [e1, e2, e3])
+  pure ([], [e1, e2, e3])
 solveGeneralElabProblem gam (Surface.Number f) x typ = do
   let u = UnificationProblem typ Scalar
   modify (updateDefs $ instantiateExpr x (Semantic.Number f))
@@ -336,7 +383,7 @@ solveGeneralElabProblem gam Surface.Now x typ = do
   modify (updateDefs $ instantiateExpr x (Semantic.Builtin Semantic.Now))
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Milliseconds n) x typ = do
-  let u = UnificationProblem typ Timestamp
+  let u = UnificationProblem typ Duration
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Application
@@ -344,7 +391,7 @@ solveGeneralElabProblem gam (Surface.Milliseconds n) x typ = do
         (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Seconds n) x typ = do
-  let u = UnificationProblem typ Timestamp
+  let u = UnificationProblem typ Duration
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Application
@@ -352,7 +399,7 @@ solveGeneralElabProblem gam (Surface.Seconds n) x typ = do
         (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Minutes n) x typ = do
-  let u = UnificationProblem typ Timestamp
+  let u = UnificationProblem typ Duration
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Application
@@ -360,7 +407,7 @@ solveGeneralElabProblem gam (Surface.Minutes n) x typ = do
         (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Hours n) x typ = do
-  let u = UnificationProblem typ Timestamp
+  let u = UnificationProblem typ Duration
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Application
@@ -709,8 +756,9 @@ solve [] = pure ()
 solve problems =
   solveH False Lin problems >>= \case
     (True, stuck) -> solve (toList stuck)
-    (False, stuck) -> throwError
-      [i| Can't solve elaboration problems: #{show problems} |]
+    (False, stuck) -> do
+      toShow <- runUnifyM $ traverse evalElabProblem (toList stuck)
+      throwError [i| Can't solve elaboration problems: #{show toShow} |]
 
 elab :: Surface.Expr -> ElabM Semantic.Expr
 elab expr = do

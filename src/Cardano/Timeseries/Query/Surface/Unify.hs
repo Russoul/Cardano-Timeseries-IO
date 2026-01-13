@@ -1,7 +1,7 @@
 {- HLINT ignore "Use newtype instead of data" -}
-module Cardano.Timeseries.Query.Surface.Unify(UnificationProblem(..), St(..), UnifyM, eval, unify, solve) where
+module Cardano.Timeseries.Query.Surface.Unify(UnificationProblem(..), St(..), UnifyM, eval, evalBinding, evalContext, unify, solve) where
 import           Cardano.Timeseries.Query.Surface.Types (Def (..), Defs,
-                                                         Ty (..), instantiateTy)
+                                                         Ty (..), instantiateTy, Context, Binding (..))
 import           Cardano.Timeseries.Query.Types         (HoleIdentifier)
 import           Control.Monad                          (join)
 import           Control.Monad.Except                   (ExceptT, throwError)
@@ -37,8 +37,8 @@ unifyHole x rhs = do
 -- | Assume the types are head-neutral (i.e. resolved holes have been substituted in if the hole is the outer expression)
 unifyNu :: Ty -> Ty -> UnifyM [UnificationProblem]
 unifyNu (Fun a b) (Fun a' b') = pure [UnificationProblem a a', UnificationProblem b b']
-unifyNu (InstantVector a) (InstantVector b) = pure [UnificationProblem a b]
-unifyNu (RangeVector a) (RangeVector b) = pure [UnificationProblem a b]
+unifyNu (InstantVector a) (InstantVector a') = pure [UnificationProblem a a']
+unifyNu (RangeVector a) (RangeVector a') = pure [UnificationProblem a a']
 unifyNu Scalar Scalar = pure []
 unifyNu Bool Bool = pure []
 unifyNu Timestamp Timestamp = pure []
@@ -83,6 +83,15 @@ eval Scalar = pure Scalar
 eval Timestamp = pure Timestamp
 eval Duration = pure Duration
 eval Bool = pure Bool
+
+evalBinding :: Binding -> UnifyM Binding
+evalBinding (LetBinding x rhs typ) =
+  LetBinding x rhs <$> eval typ
+evalBinding (LambdaBinding x typ) =
+  LambdaBinding x <$> eval typ
+
+evalContext :: Context -> UnifyM Context
+evalContext = traverse evalBinding
 
 unify :: Ty -> Ty -> UnifyM [UnificationProblem]
 unify lhs rhs = join $ unifyNu <$> eval lhs <*> eval rhs
