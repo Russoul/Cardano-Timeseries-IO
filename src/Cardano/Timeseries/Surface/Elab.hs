@@ -695,7 +695,7 @@ solveGeneralElabProblem gam (Surface.Variable l v) x typ | Just b <- find (\b ->
 -- Assumes that all variables into the store (= metrics) have type (Timestamp -> Scalar)
 solveGeneralElabProblem gam (Surface.Variable l v) x typ = do
   modify $ updateDefs $ instantiateExpr x $ Semantic.Variable v
-  pure ([UnificationProblem l typ (Fun Timestamp Scalar)], [])
+  pure ([UnificationProblem l typ (Fun Timestamp (InstantVector Scalar))], [])
 solveGeneralElabProblem gam (Surface.Filter l f v) h hty = do
   argTy <- freshTyHole
   fh <- freshExprHole (Fun (Hole argTy) Bool)
