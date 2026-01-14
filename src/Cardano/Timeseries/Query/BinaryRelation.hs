@@ -1,13 +1,23 @@
 module Cardano.Timeseries.Query.BinaryRelation(
   BinaryRelation(..),
+  prettyBinaryRelation,
   embedScalar,
   mbBinaryRelationInstantVector,
   mbBinaryRelationScalar,
   materializeScalar) where
 import           Cardano.Timeseries.Query.Expr (Function (..))
+import Data.Text (Text)
 
 -- | A datatype used to carve out a subset of `Function` that represents binary relations.
 data BinaryRelation = Eq | Lt | Lte | Gt | Gte | NotEq deriving (Show, Eq, Ord)
+
+prettyBinaryRelation :: BinaryRelation -> Text
+prettyBinaryRelation Eq = "=="
+prettyBinaryRelation Lt = "<"
+prettyBinaryRelation Lte = "<="
+prettyBinaryRelation Gt = ">"
+prettyBinaryRelation Gte = ">="
+prettyBinaryRelation NotEq = "!="
 
 embedScalar :: BinaryRelation -> Function
 embedScalar Eq    = EqScalar

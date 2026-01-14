@@ -7,6 +7,10 @@ module Cardano.Timeseries.Typing(
   Defs,
   instantiateTy,
   instantiateExpr,
+  prettyTy,
+  prettyBinding,
+  prettyContext,
+  TyPrec(..),
   ty) where
 import           Cardano.Timeseries.Data.SnocList
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
@@ -15,6 +19,7 @@ import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
 import           Data.Text                            (Text)
+import qualified Data.Text                            as Text
 
 -- | Typing of a query expression.
 data Ty = InstantVector Ty
@@ -27,9 +32,34 @@ data Ty = InstantVector Ty
         | Fun Ty Ty
         | Hole HoleIdentifier deriving (Show, Eq)
 
+data TyPrec = Loose | FunCodomain | FunDomain | Tight deriving (Show, Eq, Ord)
+
+conditionalParens :: Bool -> Text -> Text
+conditionalParens True t  = "(" <> t <> ")"
+conditionalParens False t = t
+
+prettyTy :: TyPrec -> Ty -> Text
+prettyTy prec (InstantVector typ) = conditionalParens (prec == Tight) $
+  "InstantVector " <> prettyTy Tight typ
+prettyTy prec (RangeVector typ) = conditionalParens (prec == Tight) $
+  "RangeVector " <> prettyTy Tight typ
+prettyTy prec (Pair typ typ') =
+  "(" <> prettyTy Loose typ <> ", " <> prettyTy Loose typ' <> ")"
+prettyTy prec (Fun typ typ') = conditionalParens (prec > FunCodomain) $
+  prettyTy FunDomain typ <> " -> " <> prettyTy FunCodomain typ'
+prettyTy _ Scalar = "Scalar"
+prettyTy _ Bool = "Bool"
+prettyTy _ Timestamp = "Timestamp"
+prettyTy _ Duration = "Duration"
+prettyTy _ (Hole idx) = "?" <> Text.show idx
+
 -- | A context entry of a typing context.
 data Binding = LetBinding Identifier Semantic.Expr Ty
              | LambdaBinding Identifier Ty deriving (Show)
+
+prettyBinding :: Binding -> Text
+prettyBinding (LetBinding x rhs typ) = "(" <> Text.show x <> " ≔ " <> "..." <> " : " <> prettyTy Loose typ <> ")"
+prettyBinding (LambdaBinding x typ) = "(" <> Text.show x <> " : " <> prettyTy Loose typ <> ")"
 
 identifier :: Binding -> Identifier
 identifier (LetBinding x _ _)  = x
@@ -42,6 +72,10 @@ ty (LambdaBinding _ typ) = typ
 -- | Γ
 --   A typing context of a query expression.
 type Context = SnocList Binding
+
+prettyContext :: Context -> Text
+prettyContext Lin = "()"
+prettyContext ctx = Text.intercalate " " (fmap prettyBinding (toList ctx))
 
 -- | (? type) | (? ≔ T type) | (? : T) | (? ≔ t : T)
 --   Definition of a type- or expression- level hole.

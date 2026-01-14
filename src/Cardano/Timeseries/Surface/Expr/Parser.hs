@@ -2,30 +2,31 @@
 {- HLINT ignore "Use <$>" -}
 module Cardano.Timeseries.Surface.Expr.Parser(expr) where
 
-import           Cardano.Timeseries.Domain.Identifier  (Identifier (User))
+import           Cardano.Timeseries.Domain.Identifier (Identifier (User))
 import           Cardano.Timeseries.Surface.Expr
-import           Control.Applicative                   hiding (many, some)
+import           Control.Applicative                  hiding (many, some)
 
-import           Cardano.Timeseries.Domain.Types       (Label, Labelled)
+import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
 import           Cardano.Timeseries.Surface.Expr.Head (Head)
 import qualified Cardano.Timeseries.Surface.Expr.Head as Head
-import           Control.Monad                         (guard)
-import           Data.Char                             (isAlpha, isAlphaNum)
-import           Data.Functor                          (void)
-import           Data.List.NonEmpty                    (NonEmpty ((:|)),
-                                                        fromList)
-import           Data.Scientific                       (toRealFloat)
-import           Data.Set                              (Set)
-import qualified Data.Set                              as Set
-import           Data.Text                             (Text, pack)
-import           Data.Void                             (Void)
-import           GHC.Unicode                           (isControl)
-import           Prelude                               hiding (head)
+import           Control.Monad                        (guard)
+import           Data.Char                            (isAlpha, isAlphaNum)
+import           Data.Functor                         (void)
+import           Data.List                            (foldl')
+import           Data.List.NonEmpty                   (NonEmpty ((:|)),
+                                                       fromList)
+import           Data.Scientific                      (toRealFloat)
+import           Data.Set                             (Set)
+import qualified Data.Set                             as Set
+import           Data.Text                            (Text, pack)
+import           Data.Void                            (Void)
+import           GHC.Unicode                          (isControl)
+import           Prelude                              hiding (head)
 import           Text.Megaparsec
-import           Text.Megaparsec.Char                  (char, space, space1,
-                                                        string)
-import           Text.Megaparsec.Char.Lexer            (decimal, scientific,
-                                                        signed)
+import           Text.Megaparsec.Char                 (char, space, space1,
+                                                       string)
+import           Text.Megaparsec.Char.Lexer           (decimal, scientific,
+                                                       signed)
 
 type Parser = Parsec Void Text
 
@@ -41,7 +42,8 @@ unescapedVariableIdentifier = (:) <$> firstChar <*> many nextChar <?> "identifie
   nextChar = satisfy (\x -> isAlphaNum x || x == '_')
 
 number :: Parser Expr
-number = Number . toRealFloat <$> signed (pure ()) scientific <?> "number"
+number =
+  Number <$> getSourcePos <*> (toRealFloat <$> signed (pure ()) scientific <?> "number")
 
 escapedVariableIdentifier :: Parser String
 escapedVariableIdentifier = char '`' *> manyTill one (char '`') where
@@ -58,7 +60,7 @@ variableIdentifier :: Parser Identifier
 variableIdentifier = User <$> (literalVariableIdentifier <|> escapedVariableIdentifier)
 
 variable :: Parser Expr
-variable = Variable <$> variableIdentifier
+variable = Variable <$> getSourcePos <*> variableIdentifier
 
 text :: Parser String
 text = (char '\"' *> many one) <* char '\"' where
@@ -66,51 +68,52 @@ text = (char '\"' *> many one) <* char '\"' where
   one = satisfy (\x -> not (isControl x) && (x /= '"') && (x /= '\n') && (x /= '\r'))
 
 str :: Parser Expr
-str = Str <$> text
+str = Str <$> getSourcePos <*> text
 
 milliseconds :: Parser Expr
-milliseconds = Milliseconds <$> decimal <* string "ms" <* notFollowedBy (satisfy isAlpha)
+milliseconds = Milliseconds <$> getSourcePos <*> decimal <* string "ms" <* notFollowedBy (satisfy isAlpha)
 
 seconds :: Parser Expr
-seconds = Seconds <$> decimal <* string "s" <* notFollowedBy (satisfy isAlpha)
+seconds = Seconds <$> getSourcePos <*> decimal <* string "s" <* notFollowedBy (satisfy isAlpha)
 
 minutes :: Parser Expr
-minutes = Minutes <$> decimal <* string "min" <* notFollowedBy (satisfy isAlpha)
+minutes = Minutes <$> getSourcePos <*> decimal <* string "min" <* notFollowedBy (satisfy isAlpha)
 
 hours :: Parser Expr
-hours = Hours <$> decimal <* string "h" <* notFollowedBy (satisfy isAlpha)
+hours = Hours <$> getSourcePos <*> decimal <* string "h" <* notFollowedBy (satisfy isAlpha)
 
 now :: Parser Expr
-now = Now <$ string "now"
+now = Now <$> getSourcePos <* string "now"
 
 epoch :: Parser Expr
-epoch = Now <$ string "epoch"
+epoch = Now <$> getSourcePos <* string "epoch"
 
 true :: Parser Expr
-true = Truth <$ string "true"
+true = Truth <$> getSourcePos <* string "true"
 
 false :: Parser Expr
-false = Falsity <$ string "false"
+false = Falsity <$> getSourcePos <* string "false"
 
 continueTight :: Expr -> Parser Expr
 continueTight a = a <$ string ")"
 
-continuePair :: Expr -> Parser Expr
-continuePair a = do
+continuePair :: Loc -> Expr -> Parser Expr
+continuePair l a = do
   void $ string ","
   space
   b <- exprUniverse
   space
   void $ string ")"
-  pure (MkPair a b)
+  pure (MkPair l a b)
 
 tightOrPair :: Parser Expr
 tightOrPair = do
+  l <- getSourcePos
   void $ string "("
   space
   a <- exprUniverse
   space
-  try (continuePair a) <|> continueTight a
+  try (continuePair l a) <|> continueTight a
 
 exprAtom :: Parser Expr
 exprAtom = tightOrPair
@@ -127,7 +130,7 @@ exprAtom = tightOrPair
        <|> str
 
 exprNot :: Parser Expr
-exprNot = Not <$> (string "!" *> space *> exprAtom)
+exprNot = Not <$> getSourcePos <*> (string "!" *> space *> exprAtom)
 
 range :: Parser (Expr, Expr, Maybe Expr)
 range = do
@@ -150,9 +153,10 @@ range = do
 
 exprRange :: Parser Expr
 exprRange = do
+  l <- getSourcePos
   head <- exprAtom
   ext <- many (try (space *> range))
-  pure $ foldl' mkRange head ext
+  pure $ foldl' (mkRange l) head ext
 
 labelledString :: Parser (Labelled String)
 labelledString = do
@@ -204,96 +208,99 @@ head =
     <|> Head.Latest <$> (string "latest" *> space1 *> variableIdentifier)
     <|> Head.ToScalar <$ string "to_scalar"
 
-applyBuiltin :: Head -> [Expr] -> Parser Expr
-applyBuiltin Head.Fst [t] = pure $ Fst t
-applyBuiltin Head.Fst args = fail "Wrong number of arguments for `fst`"
-applyBuiltin Head.Snd [t] = pure $ Snd t
-applyBuiltin Head.Snd args = fail "Wrong number of arguments for `snd`"
-applyBuiltin (Head.FilterByLabel ls) [t] = pure $ FilterByLabel ls t
-applyBuiltin (Head.FilterByLabel ls) args = fail "Wrong number of arguments for `filter_by_label`"
-applyBuiltin Head.Min [t] = pure $ Min t
-applyBuiltin Head.Min args = fail "Wrong number of arguments for `min`"
-applyBuiltin Head.Max [t] = pure $ Max t
-applyBuiltin Head.Max args = fail "Wrong number of arguments for `max`"
-applyBuiltin Head.Avg [t] = pure $ Avg t
-applyBuiltin Head.Avg args = fail "Wrong number of arguments for `avg`"
-applyBuiltin Head.Filter [f, xs] = pure $ Filter f xs
-applyBuiltin Head.Filter args = fail "Wrong number of arguments for `filter`"
-applyBuiltin Head.Join [xs, ys] = pure $ Join xs ys
-applyBuiltin Head.Join args = fail "Wrong number of arguments for `join`"
-applyBuiltin Head.Map [f, xs] = pure $ Map f xs
-applyBuiltin Head.Map args = fail "Wrong number of arguments for `map`"
-applyBuiltin Head.Abs [t] = pure $ Abs t
-applyBuiltin Head.Abs args = fail "Wrong number of arguments for `abs`"
-applyBuiltin Head.Increase [xs] = pure $ Increase xs
-applyBuiltin Head.Increase args = fail "Wrong number of arguments for `increase`"
-applyBuiltin Head.Rate [xs] = pure $ Rate xs
-applyBuiltin Head.Rate args = fail "Wrong number of arguments for `rate`"
-applyBuiltin Head.AvgOverTime [xs] = pure $ AvgOverTime xs
-applyBuiltin Head.AvgOverTime args = fail "Wrong number of arguments for `avg_over_time`"
-applyBuiltin Head.SumOverTime [xs] = pure $ SumOverTime xs
-applyBuiltin Head.SumOverTime args = fail "Wrong number of arguments for `sum_over_time`"
-applyBuiltin Head.QuantileOverTime [k, xs] = pure $ QuantileOverTime k xs
-applyBuiltin Head.QuantileOverTime args = fail "Wrong number of arguments for `quantile_over_time`"
-applyBuiltin Head.Unless [xs, ys] = pure $ Unless xs ys
-applyBuiltin Head.Unless args = fail "Wrong number of arguments for `unless`"
-applyBuiltin (Head.QuantileBy ls) [k, xs] = pure $ QuantileBy ls k xs
-applyBuiltin (Head.QuantileBy ls) args = fail "Wrong number of arguments for `quantile_by`"
-applyBuiltin (Head.Earliest x) [] = pure $ Earliest x
-applyBuiltin (Head.Earliest _) args = fail "Wrong number of arguments for `earliest`"
-applyBuiltin (Head.Latest x) [] = pure $ Latest x
-applyBuiltin (Head.Latest _) args = fail "Wrong number of arguments for `latest`"
-applyBuiltin Head.ToScalar [t] = pure $ ToScalar t
-applyBuiltin Head.ToScalar args = fail "Wrong number of arguments for `to_scalar`"
+applyBuiltin :: Loc -> Head -> [Expr] -> Parser Expr
+applyBuiltin l Head.Fst [t] = pure $ Fst l t
+applyBuiltin l Head.Fst args = fail "Wrong number of arguments for `fst`"
+applyBuiltin l Head.Snd [t] = pure $ Snd l t
+applyBuiltin l Head.Snd args = fail "Wrong number of arguments for `snd`"
+applyBuiltin l (Head.FilterByLabel ls) [t] = pure $ FilterByLabel l ls t
+applyBuiltin l (Head.FilterByLabel ls) args = fail "Wrong number of arguments for `filter_by_label`"
+applyBuiltin l Head.Min [t] = pure $ Min l t
+applyBuiltin l Head.Min args = fail "Wrong number of arguments for `min`"
+applyBuiltin l Head.Max [t] = pure $ Max l t
+applyBuiltin l Head.Max args = fail "Wrong number of arguments for `max`"
+applyBuiltin l Head.Avg [t] = pure $ Avg l t
+applyBuiltin l Head.Avg args = fail "Wrong number of arguments for `avg`"
+applyBuiltin l Head.Filter [f, xs] = pure $ Filter l f xs
+applyBuiltin l Head.Filter args = fail "Wrong number of arguments for `filter`"
+applyBuiltin l Head.Join [xs, ys] = pure $ Join l xs ys
+applyBuiltin l Head.Join args = fail "Wrong number of arguments for `join`"
+applyBuiltin l Head.Map [f, xs] = pure $ Map l f xs
+applyBuiltin l Head.Map args = fail "Wrong number of arguments for `map`"
+applyBuiltin l Head.Abs [t] = pure $ Abs l t
+applyBuiltin l Head.Abs args = fail "Wrong number of arguments for `abs`"
+applyBuiltin l Head.Increase [xs] = pure $ Increase l xs
+applyBuiltin l Head.Increase args = fail "Wrong number of arguments for `increase`"
+applyBuiltin l Head.Rate [xs] = pure $ Rate l xs
+applyBuiltin l Head.Rate args = fail "Wrong number of arguments for `rate`"
+applyBuiltin l Head.AvgOverTime [xs] = pure $ AvgOverTime l xs
+applyBuiltin l Head.AvgOverTime args = fail "Wrong number of arguments for `avg_over_time`"
+applyBuiltin l Head.SumOverTime [xs] = pure $ SumOverTime l xs
+applyBuiltin l Head.SumOverTime args = fail "Wrong number of arguments for `sum_over_time`"
+applyBuiltin l Head.QuantileOverTime [k, xs] = pure $ QuantileOverTime l k xs
+applyBuiltin l Head.QuantileOverTime args = fail "Wrong number of arguments for `quantile_over_time`"
+applyBuiltin l Head.Unless [xs, ys] = pure $ Unless l xs ys
+applyBuiltin l Head.Unless args = fail "Wrong number of arguments for `unless`"
+applyBuiltin l (Head.QuantileBy ls) [k, xs] = pure $ QuantileBy l ls k xs
+applyBuiltin l (Head.QuantileBy ls) args = fail "Wrong number of arguments for `quantile_by`"
+applyBuiltin l (Head.Earliest x) [] = pure $ Earliest l x
+applyBuiltin l (Head.Earliest _) args = fail "Wrong number of arguments for `earliest`"
+applyBuiltin l (Head.Latest x) [] = pure $ Latest l x
+applyBuiltin l (Head.Latest _) args = fail "Wrong number of arguments for `latest`"
+applyBuiltin l Head.ToScalar [t] = pure $ ToScalar l t
+applyBuiltin l Head.ToScalar args = fail "Wrong number of arguments for `to_scalar`"
 
-apply :: Either Head Expr -> [Expr] -> Parser Expr
-apply (Left t)  = applyBuiltin t
-apply (Right t) = pure . mkApp t
+apply :: Loc -> Either Head Expr -> [Expr] -> Parser Expr
+apply l (Left t)  = applyBuiltin l t
+apply l (Right t) = pure . mkApp l t
 
 exprAppArg :: Parser Expr
 exprAppArg = try exprNot <|> exprRange
 
 exprApp :: Parser Expr
 exprApp = do
+  l <- getSourcePos
   h <- Left <$> head <|> Right <$> exprAppArg
   args <- many (try (space1 *> exprAppArg))
-  apply h args
+  apply l h args
 
 data Mul = Asterisk | Slash
 
 mul :: Parser Mul
 mul = Asterisk <$ try (string "*") <|> Slash <$ string "/"
 
-applyMul :: Expr -> (Mul, Expr) -> Expr
-applyMul x (Asterisk, y) = Mul x y
-applyMul x (Slash, y)    = Div x y
+applyMul :: Loc -> Expr -> (Mul, Expr) -> Expr
+applyMul l x (Asterisk, y) = Mul l x y
+applyMul l x (Slash, y)    = Div l x y
 
-applyListMul :: Expr -> [(Mul, Expr)] -> Expr
-applyListMul = foldl' applyMul
+applyListMul :: Loc -> Expr -> [(Mul, Expr)] -> Expr
+applyListMul l = foldl' (applyMul l)
 
 exprMul :: Parser Expr
 exprMul = do
+  l <- getSourcePos
   h <- exprApp
   args <- many ((,) <$> try (space *> mul) <*> (space *> exprApp))
-  pure $ applyListMul h args
+  pure $ applyListMul l h args
 
 data Add = Plus | Minus deriving (Show)
 
 add :: Parser Add
 add = Plus <$ try (string "+") <|> Minus <$ string "-"
 
-applyAdd :: Expr -> (Add, Expr) -> Expr
-applyAdd x (Plus, y)  = Add x y
-applyAdd x (Minus, y) = Sub x y
+applyAdd :: Loc -> Expr -> (Add, Expr) -> Expr
+applyAdd l x (Plus, y)  = Add l x y
+applyAdd l x (Minus, y) = Sub l x y
 
-applyListAdd :: Expr -> [(Add, Expr)] -> Expr
-applyListAdd = foldl' applyAdd
+applyListAdd :: Loc -> Expr -> [(Add, Expr)] -> Expr
+applyListAdd l = foldl' (applyAdd l)
 
 exprAdd :: Parser Expr
 exprAdd = do
+  l <- getSourcePos
   h <- exprMul
   args <- many ((,) <$> try (space *> add) <*> (space *> exprMul))
-  pure $ applyListAdd h args
+  pure $ applyListAdd l h args
 
 data Comp = EqSign | NotEqSign | LtSign | LteSign | GtSign | GteSign
 
@@ -305,43 +312,47 @@ comp = EqSign <$ string "=="
    <|> GtSign <$ string ">"
    <|> GteSign <$ string ">="
 
-applyComp :: Expr -> (Comp, Expr) -> Expr
-applyComp a (EqSign, b)    = Eq a b
-applyComp a (NotEqSign, b) = NotEq a b
-applyComp a (LtSign, b)    = Lt a b
-applyComp a (LteSign, b)   = Lte a b
-applyComp a (GtSign, b)    = Gt a b
-applyComp a (GteSign, b)   = Gte a b
+applyComp :: Loc -> Expr -> (Comp, Expr) -> Expr
+applyComp l a (EqSign, b)    = Eq l a b
+applyComp l a (NotEqSign, b) = NotEq l a b
+applyComp l a (LtSign, b)    = Lt l a b
+applyComp l a (LteSign, b)   = Lte l a b
+applyComp l a (GtSign, b)    = Gt l a b
+applyComp l a (GteSign, b)   = Gte l a b
 
-applyListComp :: Expr -> [(Comp, Expr)] -> Expr
-applyListComp = foldl' applyComp
+applyListComp :: Loc -> Expr -> [(Comp, Expr)] -> Expr
+applyListComp l = foldl' (applyComp l)
 
 exprComp :: Parser Expr
 exprComp = do
+  l <- getSourcePos
   h <- exprAdd
   args <- many ((,) <$> try (space *> comp) <*> (space *> exprAdd))
-  pure $ applyListComp h args
+  pure $ applyListComp l h args
 
-applyAnd :: Expr -> [Expr] -> Expr
-applyAnd = foldl' And
+applyAnd :: Loc -> Expr -> [Expr] -> Expr
+applyAnd l = foldl' (And l)
 
 exprAnd :: Parser Expr
 exprAnd = do
+  l <- getSourcePos
   h <- exprComp
   args <- many (try (space *> string "&&") *> space *> exprComp)
-  pure $ applyAnd h args
+  pure $ applyAnd l h args
 
-applyOr :: Expr -> [Expr] -> Expr
-applyOr = foldl' Or
+applyOr :: Loc -> Expr -> [Expr] -> Expr
+applyOr l = foldl' (Or l)
 
 exprOr :: Parser Expr
 exprOr = do
+  l <- getSourcePos
   h <- exprAnd
   args <- many (try (space *> string "||") *> space *> exprAnd)
-  pure $ applyOr h args
+  pure $ applyOr l h args
 
 exprLet :: Parser Expr
 exprLet = do
+  l <- getSourcePos
   void $ string "let"
   space1
   x <- variableIdentifier
@@ -353,10 +364,11 @@ exprLet = do
   void $ string "in"
   space1
   body <- exprUniverse
-  pure $ Let x rhs body
+  pure $ Let l x rhs body
 
 exprLambda :: Parser Expr
 exprLambda = do
+  l <- getSourcePos
   void $ string "\\"
   space
   x <- variableIdentifier
@@ -364,7 +376,7 @@ exprLambda = do
   void $ string "->"
   space
   body <- exprUniverse
-  pure $ Lambda x body
+  pure $ Lambda l x body
 
 exprUniverse :: Parser Expr
 exprUniverse = try exprLet <|> (try exprLambda <|> exprOr)

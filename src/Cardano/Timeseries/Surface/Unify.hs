@@ -3,18 +3,22 @@ module Cardano.Timeseries.Surface.Unify(UnificationProblem(..), St(..), UnifyM, 
 import           Cardano.Timeseries.Query.Types    (HoleIdentifier)
 import           Cardano.Timeseries.Typing         (Binding (..), Context,
                                                     Def (..), Defs, Ty (..),
-                                                    instantiateTy)
+                                                    instantiateTy, prettyTy, TyPrec (Loose))
 import           Cardano.Timeseries.Resolve
 import           Control.Monad                     (join)
 import           Control.Monad.Except              (ExceptT, throwError)
 import           Control.Monad.State.Strict        (State, get, lift, state)
 import qualified Data.Map.Strict                   as Map
 import           Data.Text                         (Text, pack)
+import Cardano.Timeseries.Surface.Expr (Loc)
+import Text.Megaparsec (sourcePosPretty)
 
 -- | A = B type
 --   An equation between two query types containing holes.
 --   Unification is an algorithm of finding unique solutions to such equations.
 data UnificationProblem = UnificationProblem {
+  -- | Source location that induces the unification problem.
+  loc :: Loc,
   lhs :: Ty,
   rhs :: Ty
 }
@@ -38,21 +42,25 @@ unifyHole x rhs = do
      ((), updateDefs (instantiateTy x rhs (defs st)) st)
 
 -- | Assume the types are head-neutral (i.e. resolved holes have been substituted in if the hole is the outer expression)
-unifyNu :: Ty -> Ty -> UnifyM [UnificationProblem]
-unifyNu (Fun a b) (Fun a' b') = pure [UnificationProblem a a', UnificationProblem b b']
-unifyNu (InstantVector a) (InstantVector a') = pure [UnificationProblem a a']
-unifyNu (RangeVector a) (RangeVector a') = pure [UnificationProblem a a']
-unifyNu Scalar Scalar = pure []
-unifyNu Bool Bool = pure []
-unifyNu Timestamp Timestamp = pure []
-unifyNu Duration Duration = pure []
-unifyNu (Pair a b) (Pair a' b') = pure [UnificationProblem a a', UnificationProblem b b']
-unifyNu (Hole x) (Hole y) | x == y = pure []
-unifyNu (Hole x) ty = [] <$ unifyHole x ty
-unifyNu ty (Hole y) = [] <$ unifyHole y ty
-unifyNu lhs rhs =
-  -- TODO: pretty-printing of lhs and rhs
-  throwError $ pack $ "Can't solve unification constraint: " <> show lhs <> " = " <> show rhs
+unifyNu :: Loc -> Ty -> Ty -> UnifyM [UnificationProblem]
+unifyNu loc (Fun a b) (Fun a' b') = pure [UnificationProblem loc a a', UnificationProblem loc b b']
+unifyNu loc (InstantVector a) (InstantVector a') = pure [UnificationProblem loc a a']
+unifyNu loc (RangeVector a) (RangeVector a') = pure [UnificationProblem loc a a']
+unifyNu loc Scalar Scalar = pure []
+unifyNu loc Bool Bool = pure []
+unifyNu loc Timestamp Timestamp = pure []
+unifyNu loc Duration Duration = pure []
+unifyNu loc (Pair a b) (Pair a' b') = pure [UnificationProblem loc a a', UnificationProblem loc b b']
+unifyNu loc (Hole x) (Hole y) | x == y = pure []
+unifyNu loc (Hole x) ty = [] <$ unifyHole x ty
+unifyNu loc ty (Hole y) = [] <$ unifyHole y ty
+unifyNu loc lhs rhs =
+  throwError $ "Can't solve unification constraint: "
+    <> prettyTy Loose lhs
+    <> " = "
+    <> prettyTy Loose rhs
+    <> " @ "
+    <> pack (sourcePosPretty loc)
 
 -- | Check if the given hole identifier occurs in the given type.
 occurs :: HoleIdentifier -> Ty -> UnifyM Bool
@@ -72,15 +80,15 @@ occursNu x Timestamp          = pure False
 occursNu x Duration           = pure False
 occursNu x (Hole x')          = pure (x == x')
 
-unify :: Ty -> Ty -> UnifyM [UnificationProblem]
-unify lhs rhs = do
+unify :: Loc -> Ty -> Ty -> UnifyM [UnificationProblem]
+unify loc lhs rhs = do
   ds <- defs <$> get
-  unifyNu (resolveTy ds lhs) (resolveTy ds rhs)
+  unifyNu loc (resolveTy ds lhs) (resolveTy ds rhs)
 
 -- | Solve the list of unification problems, instantiating holes in the process.
 --   If a problem doesn't have a (unique) solution, throw an error.
 solve :: [UnificationProblem] -> UnifyM ()
 solve [] = pure ()
-solve (UnificationProblem lhs rhs : rest) = do
-  new <- unify lhs rhs
+solve (UnificationProblem loc lhs rhs : rest) = do
+  new <- unify loc lhs rhs
   solve (new ++ rest)

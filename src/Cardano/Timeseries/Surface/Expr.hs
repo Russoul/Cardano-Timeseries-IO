@@ -1,9 +1,11 @@
-module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp) where
+module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp, Loc, getLoc) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
+import           Data.List                            (foldl')
 import           Data.Set                             (Set)
-import Data.Text (Text)
+import           Data.Text                            (Text)
+import           Text.Megaparsec                      (SourcePos)
 
 -- ---- not ----
 -- not < atom
@@ -98,60 +100,113 @@ import Data.Text (Text)
 -- t{or}  ::= t{> or} |̅|̅ ̅t̅{̅>̅ ̅o̅r̅}̅
 -- t{universe} ::= let x = t{> universe} in t{≥ universe} | \x -> t{≥ universe}
 
+-- | Source location.
+type Loc = SourcePos
 
 data Expr =
-    Let Identifier Expr Expr
-  | Lambda Identifier Expr
-  | Fst Expr
-  | Snd Expr
-  | MkPair Expr Expr
-  | Eq Expr Expr
-  | NotEq Expr Expr
-  | Lt Expr Expr
-  | Lte Expr Expr
-  | Gt Expr Expr
-  | Gte Expr Expr
-  | Add Expr Expr
-  | Sub Expr Expr
-  | Mul Expr Expr
-  | Div Expr Expr
-  | Not Expr
-  | Or Expr Expr
-  | And Expr Expr
-  | Milliseconds Int
-  | Seconds Int
-  | Minutes Int
-  | Hours Int
-  | Epoch
-  | Now
-  | Range Expr Expr Expr (Maybe Expr)
-  | FilterByLabel (Set (Labelled String)) Expr
-  | Max Expr
-  | Min Expr
-  | Avg Expr
-  | Filter Expr Expr
-  | Join Expr Expr
-  | Map Expr Expr
-  | Abs Expr
-  | Increase Expr
-  | Rate Expr
-  | AvgOverTime Expr
-  | SumOverTime Expr
-  | QuantileOverTime Expr Expr
-  | Unless Expr Expr
-  | QuantileBy (Set Label) Expr Expr
-  | Earliest Identifier
-  | Latest Identifier
-  | ToScalar Expr
-  | Variable Identifier
-  | Str String
-  | Number Double
-  | Truth
-  | Falsity
-  | App Expr Expr deriving (Show)
+    Let Loc Identifier Expr Expr
+  | Lambda Loc Identifier Expr
+  | Fst Loc Expr
+  | Snd Loc Expr
+  | MkPair Loc Expr Expr
+  | Eq Loc Expr Expr
+  | NotEq Loc Expr Expr
+  | Lt Loc Expr Expr
+  | Lte Loc Expr Expr
+  | Gt Loc Expr Expr
+  | Gte Loc Expr Expr
+  | Add Loc Expr Expr
+  | Sub Loc Expr Expr
+  | Mul Loc Expr Expr
+  | Div Loc Expr Expr
+  | Not Loc Expr
+  | Or Loc Expr Expr
+  | And Loc Expr Expr
+  | Milliseconds Loc Int
+  | Seconds Loc Int
+  | Minutes Loc Int
+  | Hours Loc Int
+  | Epoch Loc
+  | Now Loc
+  | Range Loc Expr Expr Expr (Maybe Expr)
+  | FilterByLabel Loc (Set (Labelled String)) Expr
+  | Max Loc Expr
+  | Min Loc Expr
+  | Avg Loc Expr
+  | Filter Loc Expr Expr
+  | Join Loc Expr Expr
+  | Map Loc Expr Expr
+  | Abs Loc Expr
+  | Increase Loc Expr
+  | Rate Loc Expr
+  | AvgOverTime Loc Expr
+  | SumOverTime Loc Expr
+  | QuantileOverTime Loc Expr Expr
+  | Unless Loc Expr Expr
+  | QuantileBy Loc (Set Label) Expr Expr
+  | Earliest Loc Identifier
+  | Latest Loc Identifier
+  | ToScalar Loc Expr
+  | Variable Loc Identifier
+  | Str Loc String
+  | Number Loc Double
+  | Truth Loc
+  | Falsity Loc
+  | App Loc Expr Expr deriving (Show)
 
-mkRange :: Expr -> (Expr, Expr, Maybe Expr) -> Expr
-mkRange t (a, b, c) = Range t a b c
+getLoc :: Expr -> Loc
+getLoc (Let l _ _ _) = l
+getLoc (Lambda l _ _) = l
+getLoc (Fst l _) = l
+getLoc (Snd l _) = l
+getLoc (MkPair l _ _) = l
+getLoc (Eq l _ _) = l
+getLoc (NotEq l _ _) = l
+getLoc (Lt l _ _) = l
+getLoc (Lte l _ _) = l
+getLoc (Gt l _ _) = l
+getLoc (Gte l _ _) = l
+getLoc (Add l _ _) = l
+getLoc (Sub l _ _) = l
+getLoc (Mul l _ _) = l
+getLoc (Div l _ _) = l
+getLoc (Not l _) = l
+getLoc (Or l _ _) = l
+getLoc (And l _ _) = l
+getLoc (Milliseconds l _) = l
+getLoc (Seconds l _) = l
+getLoc (Minutes l _) = l
+getLoc (Hours l _) = l
+getLoc (Epoch l) = l
+getLoc (Now l) = l
+getLoc (Range l _ _ _ _) = l
+getLoc (FilterByLabel l _ _) = l
+getLoc (Max l _) = l
+getLoc (Min l _) = l
+getLoc (Avg l _) = l
+getLoc (Filter l _ _) = l
+getLoc (Join l _ _) = l
+getLoc (Map l _ _) = l
+getLoc (Abs l _) = l
+getLoc (Increase l _) = l
+getLoc (Rate l _) = l
+getLoc (AvgOverTime l _) = l
+getLoc (SumOverTime l _) = l
+getLoc (QuantileOverTime l _ _) = l
+getLoc (Unless l _ _) = l
+getLoc (QuantileBy l _ _ _) = l
+getLoc (Earliest l _) = l
+getLoc (Latest l _) = l
+getLoc (ToScalar l _) = l
+getLoc (Variable l _) = l
+getLoc (Str l _) = l
+getLoc (Number l _) = l
+getLoc (Truth l) = l
+getLoc (Falsity l) = l
+getLoc (App l _ _) = l
 
-mkApp :: Expr -> [Expr] -> Expr
-mkApp = foldl' App
+mkRange :: Loc -> Expr -> (Expr, Expr, Maybe Expr) -> Expr
+mkRange loc t (a, b, c) = Range loc t a b c
+
+mkApp :: Loc -> Expr -> [Expr] -> Expr
+mkApp l = foldl' (App l)
