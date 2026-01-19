@@ -13,10 +13,13 @@ import           Cardano.Timeseries.Domain.Interval
 import           Cardano.Timeseries.Domain.Timeseries    (Timeseries (Timeseries),
                                                           TimeseriesVector,
                                                           eachNewest,
-                                                          eachOldest, transpose)
+                                                          eachOldest,
+                                                          superseries,
+                                                          transpose)
 import qualified Cardano.Timeseries.Domain.Timeseries    as Timeseries
-import           Cardano.Timeseries.Domain.Types         (Labelled,
+import           Cardano.Timeseries.Domain.Types         (Label, Labelled,
                                                           MetricIdentifier,
+                                                          SeriesIdentifier,
                                                           Timestamp)
 import           Cardano.Timeseries.Interp.Value         as Value
 import           Cardano.Timeseries.Query.BinaryRelation (BinaryRelation,
@@ -43,7 +46,8 @@ import           Data.List.NonEmpty                      (fromList, toList)
 import           Data.Map.Strict                         (Map)
 import qualified Data.Map.Strict                         as Map
 import           Data.Maybe                              (fromJust)
-import           Data.Set                                (isSubsetOf, member)
+import           Data.Set                                (Set, isSubsetOf,
+                                                          member)
 import qualified Data.Set                                as Set
 import           Data.Word                               (Word64)
 import           GHC.Base                                (NonEmpty ((:|)))
@@ -51,9 +55,14 @@ import           GHC.Base                                (NonEmpty ((:|)))
 import           Cardano.Timeseries.Interp.Expect
 import           Cardano.Timeseries.Interp.Statistics
 import           Cardano.Timeseries.Query.Types          (Error, QueryM)
+import           Data.Foldable                           (for_, traverse_)
+import           Data.Function                           (on)
+import           Data.List                               (groupBy)
+import qualified Data.List                               as List
 import           Statistics.Function                     (minMax)
 import           Statistics.Quantile                     (cadpw, quantile)
 import           Statistics.Sample                       (mean)
+import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmeticOp
 
 interpJoin :: (a -> b -> c) -> InstantVector a -> InstantVector b -> Either Error (InstantVector c)
 interpJoin _ [] _ = Right []
@@ -74,12 +83,32 @@ interpVariable store x t = do
   t <- expectTimestamp t
   pure (Value.InstantVector (fmap (fmap Value.Scalar) (Store.evaluate store x t)))
 
-interpLabel :: Expr -> QueryM (Labelled String)
-interpLabel (Expr.MkPair (Expr.Str k) (Expr.Str v)) = pure (k, v)
-interpLabel _ = throwError "Unexpected expression: expected a label"
+interpLabel :: Expr -> QueryM Label
+interpLabel (Expr.Str x) = pure x
+interpLabel _            = throwError "Unexpected expression: expected a label"
 
-interpLabels :: [Expr] -> QueryM [Labelled String]
-interpLabels = traverse interpLabel
+interpLabelInst :: Expr -> QueryM (Labelled (Bool, String))
+interpLabelInst (Expr.MkPair (Expr.Str k) (Expr.Str v)) = pure (k, (Prelude.True, v))
+interpLabelInst (Expr.MkPair (Expr.Str k) (Expr.Application (Expr.Builtin Expr.Inv) (Expr.Str v :| []))) =
+  pure (k, (Prelude.False, v))
+interpLabelInst _ = throwError "Unexpected expression: expected a label instance"
+
+interpLabelInsts :: [Expr] -> QueryM (Set (Labelled String), Set (Labelled String))
+interpLabelInsts ls = do
+  (sub, notsub) <- List.partition cond <$> traverse interpLabelInst ls
+  pure (Set.fromList $ fmap extract sub, Set.fromList $ fmap extract notsub) where
+    cond (_, (b, _)) = b
+    extract (x, (_, y)) = (x, y)
+
+interpLabels :: [Expr] -> QueryM (Set Label)
+interpLabels ls = Set.fromList <$> traverse interpLabel ls
+
+interpQuantileBy :: Set Label -> Double -> InstantVector Double -> Timestamp -> QueryM (InstantVector Double)
+interpQuantileBy ls k vs now =
+  let groups = groupBy (on (==) (superseries ls . Instant.labels)) vs
+      quantiles = fmap (\g -> (superseries ls (Instant.labels (head g)), quantile cadpw (floor (k * 100)) 100 (Instant.toVector g)))
+                       groups in
+  pure $ fmap (\(idx, v) -> Instant idx now v) quantiles
 
 interpFilter :: FunctionValue -> InstantVector Value -> QueryM (InstantVector Value)
 interpFilter f = filterM pred where
@@ -177,8 +206,18 @@ interp store env (Application (Builtin FastForward) (toList -> [t, d])) now = do
   pure (Value.Timestamp (t + d))
 interp store env (Application (Builtin FilterByLabel) (s :| rest)) now = do
   s <- interp store env s now >>= expectInstantVector
-  ls <- interpLabels rest
-  pure (Value.InstantVector (filter (\i -> Set.fromList ls `isSubsetOf` Instant.labels i) s))
+  (mustBe, mustNotBe) <- interpLabelInsts rest
+  pure $
+    Value.InstantVector $
+     flip filter s $ \i ->
+       (&&)
+         (mustBe `isSubsetOf` Instant.labels i)
+         (Set.null (mustNotBe `Set.intersection` Instant.labels i))
+interp store env (Application (Builtin Unless) (u :| [v])) now = do
+  u <- interp store env u now >>= expectInstantVector
+  v <- interp store env v now >>= expectInstantVector
+  let vls = Set.fromList (map Instant.labels v)
+  pure (Value.InstantVector (filter (\i -> not (member (Instant.labels i) vls)) u))
 interp store env (Application (Builtin Filter) (toList -> [f, t])) now = do
   f <- interp store env f now >>= expectFunction
   t <- interp store env t now >>= expectInstantVector
@@ -226,20 +265,23 @@ interp _ env (Application (Builtin Minutes) (Expr.Number t :| [])) _ =
   Duration . (60 * 1000 *) <$> expectWord64 t
 interp _ env (Application (Builtin Hours) (Expr.Number t :| [])) _ =
   Duration . (60 * 60 * 1000 *) <$> expectWord64 t
-interp store env (Application (Builtin AddInstantVectorScalar) (toList -> [a, b])) now = do
+interp store env (Application (Builtin (BinaryArithmeticOp.mbBinaryArithmeticOpInstantVectorScalar -> Just op))
+                 (toList -> [a, b])) now = do
   va <- interp store env a now >>= expectInstantVectorScalar
   vb <- interp store env b now >>= expectInstantVectorScalar
-  v <- liftEither (interpJoin (+) va vb)
+  v <- liftEither (interpJoin (BinaryArithmeticOp.materializeScalar op) va vb)
   pure (Value.InstantVector (fmap (fmap Value.Scalar) v))
-interp store env (Application (Builtin MulInstantVectorScalar) (toList -> [a, b])) now = do
-  va <- interp store env a now >>= expectInstantVectorScalar
-  vb <- interp store env b now >>= expectInstantVectorScalar
-  v <- liftEither (interpJoin (*) va vb)
-  pure (Value.InstantVector (fmap (fmap Value.Scalar) v))
-interp store env (Application (Builtin Quantile) (toList -> [Expr.Number k, expr])) now = do
+interp store env (Application (Builtin Quantile) (toList -> [k, expr])) now = do
+  k <- interp store env k now >>= expectScalar
   v <- interp store env expr now >>= expectInstantVectorScalar
   pure $ Value.Scalar $ quantile cadpw (floor (k * 100)) 100 (Instant.toVector v)
-interp store env (Application (Builtin QuantileOverTime) (toList -> [Expr.Number k, expr])) now = do
+interp store env (Application (Builtin QuantileBy) (toList -> k : expr : ls)) now = do
+  k <- interp store env k now >>= expectScalar
+  v <- interp store env expr now >>= expectInstantVectorScalar
+  ls <- interpLabels ls
+  Value.InstantVector . fmap (fmap Value.Scalar) <$> interpQuantileBy ls k v now
+interp store env (Application (Builtin QuantileOverTime) (toList -> [k, expr])) now = do
+  k <- interp store env k now >>= expectScalar
   v <- interp store env expr now >>= expectRangeVectorScalar
   pure $ Value.InstantVector (fmap Value.Scalar <$> quantileRangeVector k v)
 interp store env (Application (Builtin Rate) (r :| [])) now = do
@@ -300,25 +342,17 @@ interp store env (Application (Builtin (mbBinaryRelationScalar -> Just rel)) (to
   va <- interp store env a now >>= expectScalar
   vb <- interp store env b now >>= expectScalar
   pure (fromBool (BinaryRelation.materializeScalar rel va vb))
-interp store env (Application (Builtin Expr.AddScalar) (toList -> [a, b])) now = do
+interp store env (Application (Builtin (BinaryArithmeticOp.mbBinaryArithmeticOpScalar -> Just op))
+                   (toList -> [a, b])) now = do
   va <- interp store env a now >>= expectScalar
   vb <- interp store env b now >>= expectScalar
-  pure (Value.Scalar (va + vb))
-interp store env (Application (Builtin Expr.MulScalar) (toList -> [a, b])) now = do
-  va <- interp store env a now >>= expectScalar
-  vb <- interp store env b now >>= expectScalar
-  pure (Value.Scalar (va * vb))
-interp store env (Application (Builtin Expr.SubScalar) (toList -> [a, b])) now = do
-  va <- interp store env a now >>= expectScalar
-  vb <- interp store env b now >>= expectScalar
-  pure (Value.Scalar (va - vb))
-interp store env (Application (Builtin Expr.DivScalar) (toList -> [a, b])) now = do
-  va <- interp store env a now >>= expectScalar
-  vb <- interp store env b now >>= expectScalar
-  pure (Value.Scalar (va / vb))
+  pure (Value.Scalar (BinaryArithmeticOp.materializeScalar op va vb))
 interp store env (Application (Builtin Expr.Abs) (x :| [])) now = do
   x <- interp store env x now >>= expectScalar
   pure (Value.Scalar (abs x))
+interp store env (Application (Builtin Expr.RoundScalar) (x :| [])) now = do
+  x <- interp store env x now >>= expectScalar
+  pure (Value.Scalar (fromIntegral (round x :: Int)))
 interp store env (Application f (e :| [])) now = do
   f <- interp store env f now >>= expectFunction
   e <- interp store env e now

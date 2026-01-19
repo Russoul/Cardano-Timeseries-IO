@@ -91,6 +91,7 @@ main = do
    Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
      putStrLn ("Expr: " <> show query)
+     putStrLn "-----------"
      case evalState (runExceptT (elab query)) initialSt of
        Left err   -> die (unpack err)
        Right expr -> putStrLn (show expr)

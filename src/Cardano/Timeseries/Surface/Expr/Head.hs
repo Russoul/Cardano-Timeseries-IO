@@ -5,13 +5,13 @@ import           Data.Set                             (Set)
 
 data Head = Fst
           | Snd
-          | FilterByLabel (Set (Labelled String))
           | Min
           | Max
           | Avg
           | Filter
           | Join
           | Map
+          | Round
           | Abs
           | Increase
           | Rate
@@ -22,4 +22,4 @@ data Head = Fst
           | QuantileBy (Set Label)
           | Earliest Identifier
           | Latest Identifier
-          | ToScalar
+          | ToScalar deriving (Show)

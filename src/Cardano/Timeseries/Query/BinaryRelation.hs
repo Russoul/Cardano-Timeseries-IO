@@ -2,8 +2,10 @@ module Cardano.Timeseries.Query.BinaryRelation(
   BinaryRelation(..),
   prettyBinaryRelation,
   embedScalar,
+  embedInstantVectorScalar,
   mbBinaryRelationInstantVector,
   mbBinaryRelationScalar,
+  swapInstantVectorScalar,
   materializeScalar) where
 import           Cardano.Timeseries.Query.Expr (Function (..))
 import Data.Text (Text)
@@ -26,6 +28,28 @@ embedScalar Lte   = LteScalar
 embedScalar Gt    = GtScalar
 embedScalar Gte   = GteScalar
 embedScalar NotEq = NotEqScalar
+
+embedInstantVectorScalar :: BinaryRelation -> Function
+embedInstantVectorScalar Eq    = EqInstantVectorScalar
+embedInstantVectorScalar Lt    = LtInstantVectorScalar
+embedInstantVectorScalar Lte   = LteInstantVectorScalar
+embedInstantVectorScalar Gt    = GtInstantVectorScalar
+embedInstantVectorScalar Gte   = GteInstantVectorScalar
+embedInstantVectorScalar NotEq = NotEqInstantVectorScalar
+
+-- k < v <=> v > k
+-- k ≤ v <=> v ≥ k
+-- k > v <=> v < k
+-- k ≥ v <=> v ≤ k
+-- k = v <=> v = k
+-- k ≠ v <=> v ≠ k
+swapInstantVectorScalar :: BinaryRelation -> BinaryRelation
+swapInstantVectorScalar Eq    = Eq
+swapInstantVectorScalar NotEq = NotEq
+swapInstantVectorScalar Lt    = Gt
+swapInstantVectorScalar Lte   = Gte
+swapInstantVectorScalar Gt    = Lt
+swapInstantVectorScalar Gte   = Lte
 
 mbBinaryRelationInstantVector :: Function -> Maybe BinaryRelation
 mbBinaryRelationInstantVector EqInstantVectorScalar    = Just Eq

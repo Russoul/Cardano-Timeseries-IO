@@ -44,6 +44,7 @@ import           Data.List.NonEmpty                   (NonEmpty)
  -     | min
  -     | max
  -     | abs
+ -     | round_scalar
  -     | duration_to_scalar
  -     | add_duration
  -     | now
@@ -63,12 +64,15 @@ import           Data.List.NonEmpty                   (NonEmpty)
  -     | map
  -     | earliest
  -     | latest
+ -     | inv
  - e{1} ::= f | x | s | (e{≥0}) | c | (e{≥0}, e{≥0})
  - e{0} ::= e{≥1} e{≥1} e{≥1} ... e{≥1} | \x -> e{≥0} | let x = e{≥0} in e{≥0}
  -}
 
 data Function = AddInstantVectorScalar
+              | SubInstantVectorScalar
               | MulInstantVectorScalar
+              | DivInstantVectorScalar
               | EqInstantVectorScalar
               | LtInstantVectorScalar
               | LteInstantVectorScalar
@@ -96,6 +100,7 @@ data Function = AddInstantVectorScalar
               | BoolToScalar
               | InstantVectorToScalar
               | Abs
+              | RoundScalar
 
               | Milliseconds
               | Seconds
@@ -113,6 +118,7 @@ data Function = AddInstantVectorScalar
               | AvgOverTime
               | SumOverTime
               | Avg
+              | QuantileBy
               | Quantile
               | Max
               | Min
@@ -126,7 +132,9 @@ data Function = AddInstantVectorScalar
               | Range
 
               | FilterByLabel
+              | Inv
               | Filter
+              | Unless
               | Join
               | Map
               | Earliest

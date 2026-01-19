@@ -7,11 +7,14 @@ import           Cardano.Timeseries.Domain.Identifier        (Identifier)
 import           Cardano.Timeseries.Domain.Types             (Labelled)
 import           Cardano.Timeseries.Query.BinaryArithmeticOp
 import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmeticOp
-import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation, prettyBinaryRelation)
+import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation,
+                                                              prettyBinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
 import           Cardano.Timeseries.Query.Types              (HoleIdentifier)
 import           Cardano.Timeseries.Resolve
+import           Cardano.Timeseries.Surface.Expr             (LabelConstraint (..),
+                                                              Loc, getLoc)
 import qualified Cardano.Timeseries.Surface.Expr             as Surface
 import           Cardano.Timeseries.Surface.Unify            (UnificationProblem (..),
                                                               UnifyM)
@@ -20,7 +23,10 @@ import           Cardano.Timeseries.Typing                   (Binding (..),
                                                               Context, Def (..),
                                                               Defs,
                                                               Ty (Bool, Duration, Fun, Hole, InstantVector, RangeVector, Scalar, Timestamp),
-                                                              instantiateExpr, prettyTy, TyPrec (Loose), prettyContext)
+                                                              TyPrec (Loose),
+                                                              instantiateExpr,
+                                                              prettyContext,
+                                                              prettyTy)
 import qualified Cardano.Timeseries.Typing                   as Ty
 import qualified Cardano.Timeseries.Typing                   as Types
 import           Control.Monad                               (when)
@@ -37,10 +43,9 @@ import qualified Data.Map.Strict                             as Map
 import qualified Data.Set                                    as Set
 import           Data.String.Interpolate                     (i)
 import           Data.Text                                   (Text, pack)
+import qualified Data.Text                                   as Text
 import           Debug.Trace                                 (traceM)
-import Cardano.Timeseries.Surface.Expr (Loc, getLoc)
-import Text.Megaparsec (sourcePosPretty)
-import qualified Data.Text as Text
+import           Text.Megaparsec                             (sourcePosPretty)
 
 -- | Γ ⊦ s ~> ?x : A
 data GeneralElabProblem = GeneralElabProblem {
@@ -74,7 +79,7 @@ data BinaryRelationElabProblem = BinaryRelationElabProblem {
 
 prettyBinaryRelationElabProblem :: BinaryRelationElabProblem -> Text
 prettyBinaryRelationElabProblem (BinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy) =
-  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyBinaryRelation rel} #{prettyTy Loose rhsTy} : #{prettyTy Loose rhsTy}
+  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyBinaryRelation rel} #{prettyTy Loose rhsTy} : #{prettyTy Loose holeTy}
       @ #{sourcePosPretty loc}|]
 
 evalBinaryRelationElabProblem :: Defs -> BinaryRelationElabProblem -> BinaryRelationElabProblem
@@ -105,7 +110,7 @@ data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
 
 prettyBinaryArithmeticOpElabProblem :: BinaryArithmeticOpElabProblem -> Text
 prettyBinaryArithmeticOpElabProblem (BinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy) =
-  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyOp op} #{prettyTy Loose rhsTy} : #{prettyTy Loose rhsTy}
+  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyOp op} #{prettyTy Loose rhsTy} : #{prettyTy Loose holeTy}
       @ #{sourcePosPretty loc}|]
 
 evalBinaryArithmethicOpElabProblem :: Defs -> BinaryArithmeticOpElabProblem -> BinaryArithmeticOpElabProblem
@@ -156,10 +161,10 @@ evalElabProblem defs (BinaryArithmeticOp p) = BinaryArithmeticOp (evalBinaryArit
 evalElabProblem defs (ToScalar p) = ToScalar (evalToScalarElabProblem defs p)
 
 prettyElabProblem :: ElabProblem -> Text
-prettyElabProblem (General p) = prettyGeneralElabProblem p
-prettyElabProblem (BinaryRelation p) = prettyBinaryRelationElabProblem p
+prettyElabProblem (General p)            = prettyGeneralElabProblem p
+prettyElabProblem (BinaryRelation p)     = prettyBinaryRelationElabProblem p
 prettyElabProblem (BinaryArithmeticOp p) = prettyBinaryArithmeticOpElabProblem p
-prettyElabProblem (ToScalar p) = prettyToScalarElabProblem p
+prettyElabProblem (ToScalar p)           = prettyToScalarElabProblem p
 
 data St = St {
   defs               :: Defs,
@@ -260,6 +265,58 @@ solveToScalarElabProblem gam loc expr (Hole _) hole = pure Nothing
 solveToScalarElabProblem gam loc expr badType hole = throwError
   [i| to_scalar can't be applied to an expression of type #{prettyTy Loose badType} @ #{sourcePosPretty loc} |]
 
+-- | Σ Γ ⊦ InstantVector Scalar `rel` Scalar ~> ? : InstantVector Scalar
+-- | Σ Γ ⊦ Scalar `rel` Scalar ~> ? : Bool
+solveCanonicalBinaryRelationElabProblem :: Context
+                                        -> Loc
+                                        -> Semantic.Expr
+                                        -> Ty
+                                        -> BinaryRelation
+                                        -> Semantic.Expr
+                                        -> Ty
+                                        -> HoleIdentifier
+                                        -> Ty
+                                        -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
+solveCanonicalBinaryRelationElabProblem gam loc lhs (InstantVector Scalar) rel rhs Scalar hole (InstantVector Scalar) = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin (BinaryRelation.embedInstantVectorScalar rel)) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin (BinaryRelation.embedScalar rel)) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryRelationElabProblem _ _ _ _ _ _ _ _ _ = pure Nothing
+
+solveNoncanonicalBinaryRelationElabProblem :: Context
+                                           -> Loc
+                                           -> Semantic.Expr
+                                           -> Ty
+                                           -> BinaryRelation
+                                           -> Semantic.Expr
+                                           -> Ty
+                                           -> HoleIdentifier
+                                           -> Ty
+                                           -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs (InstantVector Scalar) rel rhs Scalar hole typ = do
+  pure $ Just ([UnificationProblem loc typ (InstantVector Scalar)],
+    [BinaryRelation $
+      BinaryRelationElabProblem gam loc lhs (InstantVector Scalar)
+        rel rhs Scalar hole (InstantVector Scalar)])
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs (InstantVector Scalar) hole typ = do
+  pure $ Just ([UnificationProblem loc typ (InstantVector Scalar)],
+    [BinaryRelation $
+      BinaryRelationElabProblem gam loc rhs (InstantVector Scalar)
+        (BinaryRelation.swapInstantVectorScalar rel) lhs Scalar hole (InstantVector Scalar)])
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole typ = do
+  pure $ Just ([UnificationProblem loc typ Bool],
+        [BinaryRelation $ BinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool])
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole Bool = do
+  pure $ Just ([UnificationProblem loc lhsTy Scalar, UnificationProblem loc rhsTy Scalar],
+        [BinaryRelation $ BinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool])
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs lshTy rel rhs rhsTy hole holeTy = pure Nothing
+
 -- | Σ Γ ⊦ (a : A) `rel` (b : B) ~> ?x : C
 --   Assumes that all given `Ty` are normal w.r.t. hole substitution.
 -- FIXME: Incomplete
@@ -273,20 +330,56 @@ solveBinaryRelationElabProblem :: Context
                                -> HoleIdentifier
                                -> Ty
                                -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
-solveBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool = do
+solveBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy =
+  solveCanonicalBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy >>= \case
+    Nothing -> solveNoncanonicalBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy
+    Just ok -> pure (Just ok)
+
+-- | Σ Γ ⊦ Timestamp + Duration ~> ? : Timestamp
+-- | Σ Γ ⊦ Timestamp - Duration ~> ? : Timestamp
+-- | Σ Γ ⊦ Duration + Duration ~> ? : Duration
+-- | Σ Γ ⊦ Scalar `op` Scalar ~> ? : Scalar
+-- | Σ Γ ⊦ InstantVector Scalar `op` Scalar ~> ? : InstantVector Scalar
+solveCanonicalBinaryArithmeticOpElabProblem :: Context
+                                            -> Loc
+                                            -> Semantic.Expr
+                                            -> Ty
+                                            -> BinaryArithmeticOp
+                                            -> Semantic.Expr
+                                            -> Ty
+                                            -> HoleIdentifier
+                                            -> Ty
+                                            -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
+solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryRelation.embedScalar rel)) (NonEmpty.fromList [lhs, rhs]))
+      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [lhs, rhs]))
   pure $ Just ([], [])
-solveBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole Bool = do
-  pure $ Just ([UnificationProblem loc lhsTy Scalar, UnificationProblem loc lhsTy Scalar],
-        [BinaryRelation $ BinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool])
-solveBinaryRelationElabProblem gam loc lhs lshTy rel rhs rhsTy hole holeTy = pure Nothing
+solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Duration hole Duration = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.AddDuration) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin Semantic.Rewind) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole Scalar = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin (BinaryArithmeticOp.embedScalar op)) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs (InstantVector Scalar)
+  op rhs Scalar hole (InstantVector Scalar) = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.Application (Semantic.Builtin (BinaryArithmeticOp.embedInstantVectorScalar op)) (NonEmpty.fromList [lhs, rhs]))
+  pure $ Just ([], [])
+solveCanonicalBinaryArithmeticOpElabProblem _ _ _ _ _ _ _ _ _ = pure Nothing
 
--- | Σ Γ ⊦ (a : A) `op` (b : B) ~> ?x : C
---   Assumes that all given `Ty` are normal w.r.t. hole substitution.
--- FIXME: Incomplete
-solveBinaryArithmeticOpElabProblem :: Context
+solveNoncanonicalBinaryArithmeticOpElabProblem ::
+                                      Context
                                    -> Loc
                                    -> Semantic.Expr
                                    -> Ty
@@ -296,71 +389,31 @@ solveBinaryArithmeticOpElabProblem :: Context
                                    -> HoleIdentifier
                                    -> Ty
                                    -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
-solveBinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Duration = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [rhs, lhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [lhs, rhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.Rewind) (NonEmpty.fromList [lhs, rhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc d Duration BinaryArithmeticOp.Add t Timestamp hole Timestamp = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [t, d]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs rhsTy hole typ = do
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole typ = do
+  pure $ Just ([UnificationProblem loc typ Timestamp], [BinaryArithmeticOp $
+    BinaryArithmeticOpElabProblem gam loc rhs Timestamp BinaryArithmeticOp.Add lhs Duration hole Timestamp])
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs rhsTy hole typ = do
   pure $ Just ([UnificationProblem loc rhsTy Duration, UnificationProblem loc typ Timestamp],
                [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp])
-solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy BinaryArithmeticOp.Add rhs Timestamp hole typ = do
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy BinaryArithmeticOp.Add rhs Timestamp hole typ = do
   pure $ Just ([UnificationProblem loc lhsTy Duration, UnificationProblem loc typ Timestamp],
                [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Timestamp])
-solveBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs rhsTy hole typ = do
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs rhsTy hole typ = do
   pure $ Just ([UnificationProblem loc rhsTy Duration, UnificationProblem loc typ Timestamp],
                [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp])
-solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy@(InstantVector _) op rhs rhsTy@(InstantVector _) hole Scalar =
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy@(InstantVector _) op rhs rhsTy@(InstantVector _) hole Scalar =
   throwError
     [i| Incompatibility: (_ : #{prettyTy Loose lhsTy}) #{prettyOp op} (_ : #{prettyTy Loose rhsTy}) |]
-solveBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole Scalar = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryArithmeticOp.embedScalar op)) (NonEmpty.fromList [lhs, rhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs (InstantVector Scalar) BinaryArithmeticOp.Mul rhs Scalar hole (InstantVector Scalar) = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.MulInstantVectorScalar) (NonEmpty.fromList [lhs, rhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs Scalar BinaryArithmeticOp.Mul rhs (InstantVector Scalar) hole (InstantVector Scalar) = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.MulInstantVectorScalar) (NonEmpty.fromList [rhs, lhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs (InstantVector Scalar) BinaryArithmeticOp.Add rhs Scalar hole (InstantVector Scalar) = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.AddInstantVectorScalar) (NonEmpty.fromList [lhs, rhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs Scalar BinaryArithmeticOp.Add rhs (InstantVector Scalar) hole (InstantVector Scalar) = do
-  modify $ updateDefs $
-    instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.AddInstantVectorScalar) (NonEmpty.fromList [rhs, lhs]))
-  pure $ Just ([], [])
-solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole Scalar = do
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs (InstantVector Scalar) hole typ = do
+  pure (Just ([UnificationProblem loc typ (InstantVector Scalar)], [BinaryArithmeticOp $
+    BinaryArithmeticOpElabProblem gam loc rhs (InstantVector Scalar) op lhs Scalar hole (InstantVector Scalar)]))
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole Scalar = do
   pure $ Just ([UnificationProblem loc lhsTy Scalar, UnificationProblem loc lhsTy Scalar],
         [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole Scalar])
-solveBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole holeTy = do
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole holeTy = do
   pure $ Just ([UnificationProblem loc holeTy Scalar],
         [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole Scalar])
--- TODO: Addition of Scalar and InstantVector, addition of InstantVector and InstantVector
-solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy BinaryArithmeticOp.Mul rhs rhsTy hole holeTy
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy
   | lhsTy == InstantVector Scalar || rhsTy == InstantVector Scalar =
   pure $ Just
     (
@@ -371,14 +424,33 @@ solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy BinaryArithmeticOp.Mul rhs 
          loc
          lhs
          lhsTy
-         BinaryArithmeticOp.Mul
+         op
          rhs
          rhsTy
          hole
          (InstantVector Scalar)
      ]
     )
-solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy = pure Nothing
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy = pure Nothing
+
+-- | Σ Γ ⊦ (a : A) `op` (b : B) ~> ?x : C
+--   Assumes that all given `Ty` are normal w.r.t. hole substitution.
+-- FIXME: Incomplete
+solveBinaryArithmeticOpElabProblem ::
+     Context
+  -> Loc
+  -> Semantic.Expr
+  -> Ty
+  -> BinaryArithmeticOp
+  -> Semantic.Expr
+  -> Ty
+  -> HoleIdentifier
+  -> Ty
+  -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
+solveBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy =
+  solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy >>= \case
+    Nothing -> solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy
+    Just ok -> pure (Just ok)
 
 -- | Σ Γ ⊦ s ~> ?x : A
 --   Assumes that the given `Ty` is normal w.r.t. hole substitution.
@@ -386,18 +458,18 @@ solveGeneralElabProblem :: Context -> Surface.Expr -> HoleIdentifier -> Ty -> El
 solveGeneralElabProblem gam (mbBinaryRelation -> Just (l, a, r, b)) x typ = do
   expectedA <- freshTyHole
   expectedB <- freshTyHole
-  ax <- freshExprHole (Hole expectedA)
-  ay <- freshExprHole (Hole expectedB)
-  let e1 = General $ GeneralElabProblem gam a ax (Hole expectedA)
-  let e2 = General $ GeneralElabProblem gam b ay (Hole expectedB)
+  ah <- freshExprHole (Hole expectedA)
+  bh <- freshExprHole (Hole expectedB)
+  let e1 = General $ GeneralElabProblem gam a ah (Hole expectedA)
+  let e2 = General $ GeneralElabProblem gam b bh (Hole expectedB)
   let e3 = BinaryRelation $
         BinaryRelationElabProblem
           gam
           l
-          (Semantic.Hole ax)
+          (Semantic.Hole ah)
           (Hole expectedA)
           r
-          (Semantic.Hole ay)
+          (Semantic.Hole bh)
           (Hole expectedB)
           x
           typ
@@ -498,6 +570,16 @@ solveGeneralElabProblem gam (Surface.Abs l a) x typ = do
         (Semantic.Builtin Semantic.Abs)
         (NonEmpty.fromList [Semantic.Hole x'])
   pure ([u], [e1])
+solveGeneralElabProblem gam (Surface.Round l a) x typ = do
+  let u = UnificationProblem l typ Scalar
+  x' <- freshExprHole Scalar
+  let e1 = General $ GeneralElabProblem gam a x' Scalar
+  modify $ updateDefs $
+    instantiateExpr x $
+      Semantic.Application
+        (Semantic.Builtin Semantic.RoundScalar)
+        (NonEmpty.fromList [Semantic.Hole x'])
+  pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Increase l a) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
   x' <- freshExprHole (RangeVector Scalar)
@@ -580,13 +662,25 @@ solveGeneralElabProblem gam (Surface.QuantileOverTime l k r) x typ = do
         (Semantic.Builtin Semantic.QuantileOverTime)
         (NonEmpty.fromList [Semantic.Hole kh, Semantic.Hole rh])
   pure ([u], [e1])
+solveGeneralElabProblem gam (Surface.QuantileBy loc ls k v) x typ = do
+  let u = UnificationProblem loc typ (InstantVector Scalar)
+  vh <- freshExprHole (InstantVector Scalar)
+  let e1 = General $ GeneralElabProblem gam v vh (InstantVector Scalar)
+  kh <- freshExprHole Scalar
+  let e2 = General $ GeneralElabProblem gam k kh Scalar
+  modify $ updateDefs $
+    instantiateExpr x $
+      Semantic.Application
+        (Semantic.Builtin Semantic.QuantileBy)
+        (NonEmpty.fromList ([Semantic.Hole kh, Semantic.Hole vh] ++ fmap Semantic.Str (Set.toList ls)))
+  pure ([u], [e1, e2])
 solveGeneralElabProblem gam (Surface.Range l expr t0 t1 Nothing) x typ = do
   tyh <- freshTyHole
   let u = UnificationProblem l typ (RangeVector (Hole tyh))
-  exprh <- freshExprHole (Fun Timestamp (Hole tyh))
+  exprh <- freshExprHole (Fun Timestamp (InstantVector (Hole tyh)))
   t0h <- freshExprHole Timestamp
   t1h <- freshExprHole Timestamp
-  let e1 = General $ GeneralElabProblem gam expr exprh (Fun Timestamp (Hole tyh))
+  let e1 = General $ GeneralElabProblem gam expr exprh (Fun Timestamp (InstantVector (Hole tyh)))
   let e2 = General $ GeneralElabProblem gam t0 t0h Timestamp
   let e3 = General $ GeneralElabProblem gam t1 t1h Timestamp
   modify $ updateDefs $
@@ -598,11 +692,11 @@ solveGeneralElabProblem gam (Surface.Range l expr t0 t1 Nothing) x typ = do
 solveGeneralElabProblem gam (Surface.Range l expr t0 t1 (Just step)) x typ = do
   tyh <- freshTyHole
   let u = UnificationProblem l typ (RangeVector (Hole tyh))
-  exprh <- freshExprHole (Fun Timestamp (Hole tyh))
+  exprh <- freshExprHole (Fun Timestamp (InstantVector (Hole tyh)))
   t0h <- freshExprHole Timestamp
   t1h <- freshExprHole Timestamp
   steph <- freshExprHole Duration
-  let e1 = General $ GeneralElabProblem gam expr exprh (Fun Timestamp (Hole tyh))
+  let e1 = General $ GeneralElabProblem gam expr exprh (Fun Timestamp (InstantVector (Hole tyh)))
   let e2 = General $ GeneralElabProblem gam t0 t0h Timestamp
   let e3 = General $ GeneralElabProblem gam t1 t1h Timestamp
   let e4 = General $ GeneralElabProblem gam step steph Duration
@@ -711,14 +805,21 @@ solveGeneralElabProblem gam (Surface.FilterByLabel loc ls v) h hty = do
   argTy <- freshTyHole
   vh <- freshExprHole (InstantVector (Hole argTy))
   modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.FilterByLabel)
-    (NonEmpty.fromList (Semantic.Hole vh : elabLabels (Set.toList ls)))
+    (NonEmpty.fromList (Semantic.Hole vh : elabLabelConstraints (Set.toList ls)))
   pure ([UnificationProblem loc hty (InstantVector (Hole argTy))],
         [General $ GeneralElabProblem gam v vh (InstantVector (Hole argTy))]
        )
   where
-    elabLabels :: [Labelled String] -> [Semantic.Expr]
-    elabLabels [] = []
-    elabLabels ((l, val) : rest) = Semantic.MkPair (Semantic.Str l) (Semantic.Str val) : elabLabels rest
+    elabLabelConstraint :: LabelConstraint -> Semantic.Expr
+    elabLabelConstraint (LabelConstraintEq (x, v)) =
+      Semantic.MkPair (Semantic.Str x) (Semantic.Str v)
+    elabLabelConstraint (LabelConstraintNotEq (x, v)) =
+      Semantic.MkPair
+        (Semantic.Str x)
+        (Semantic.Application (Semantic.Builtin Semantic.Inv) (Semantic.Str v :| []))
+
+    elabLabelConstraints :: [LabelConstraint] -> [Semantic.Expr]
+    elabLabelConstraints = fmap elabLabelConstraint
 solveGeneralElabProblem gam (Surface.Map l f v) h hty = do
   aTy <- freshTyHole
   bTy <- freshTyHole
@@ -739,6 +840,18 @@ solveGeneralElabProblem gam (Surface.Join l v u) h hty = do
   modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Join)
     (NonEmpty.fromList [Semantic.Hole vh, Semantic.Hole uh])
   pure ([UnificationProblem l hty (InstantVector (Ty.Pair (Hole aTy) (Hole bTy)))],
+        [General $ GeneralElabProblem gam v vh (InstantVector (Hole aTy)),
+         General $ GeneralElabProblem gam u uh (InstantVector (Hole bTy))
+        ]
+       )
+solveGeneralElabProblem gam (Surface.Unless l v u) h hty = do
+  aTy <- freshTyHole
+  bTy <- freshTyHole
+  vh <- freshExprHole (InstantVector (Hole aTy))
+  uh <- freshExprHole (InstantVector (Hole bTy))
+  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Unless)
+    (NonEmpty.fromList [Semantic.Hole vh, Semantic.Hole uh])
+  pure ([UnificationProblem l hty (InstantVector (Hole aTy))],
         [General $ GeneralElabProblem gam v vh (InstantVector (Hole aTy)),
          General $ GeneralElabProblem gam u uh (InstantVector (Hole bTy))
         ]

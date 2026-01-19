@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Cardano.Timeseries.Domain.Timeseries(Timeseries(..), TimeseriesVector,
-  transpose, toVector, oldest, newest, eachOldest, eachNewest) where
+  transpose, toVector, oldest, newest, eachOldest, eachNewest, superseries) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (Instant), InstantVector)
 import qualified Cardano.Timeseries.Domain.Instant as Instant
@@ -95,3 +95,7 @@ transpose instants =
 
 toVector :: Timeseries Double -> Vector Double
 toVector = Vector.fromList . fmap snd . dat
+
+-- Widen the series by the given set of labels.
+superseries :: Set Label -> SeriesIdentifier -> SeriesIdentifier
+superseries ls = Set.filter (\(k, _) -> k `elem` ls)

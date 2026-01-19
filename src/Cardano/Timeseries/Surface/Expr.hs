@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp, Loc, getLoc) where
+module Cardano.Timeseries.Surface.Expr(LabelConstraint(..), Expr(..), mkRange, mkApp, Loc, getLoc) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
@@ -61,6 +61,9 @@ import           Text.Megaparsec                      (SourcePos)
 -- universe < and
 -- universe < or
 
+-- s ::= <double-quoted-string>
+-- lc ::= s = s | s != s         // label constraint
+-- l̅c̅ ::= {lc, ..., .lc}
 -- t{atom} ::= (t{≥ universe}, t{≥ universe})
 --           | x
 --           | epoch
@@ -69,17 +72,19 @@ import           Text.Megaparsec                      (SourcePos)
 --           | false
 --           | <int>ms
 --           | <int>s
---           | <int>min
+--           | <int>m
 --           | <int>h
 --           | (t{≥ universe})
 --           | <float>
 --           | "<string>"
 -- t{not} ::= !t{> not}
--- t{range} ::= t{> range} [̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅ ̅|̅ ̅t̅[̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅ ̅:̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅
--- t{app} ::= fst t{> app} | snd t{> app} | filter_by_label {s = s, ..., s = s} t{> app}
+-- t{range} ::= t{> range} l̅c̅
+--            | t{> range} [̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅ ̅|̅ ̅t̅[̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅;̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅ ̅:̅ ̅t̅{̅≥̅ ̅u̅n̅i̅v̅e̅r̅s̅e̅}̅]̅
+-- t{app} ::= fst t{> app} | snd t{> app}
 --            | min t{> app} | max t{> app} | avg t{> app} | filter t{> app} t{> app}
 --            | join t{> app} t{> app}
 --            | map t{> app} t{> app}
+--            | round t{> app}
 --            | abs t{> app}
 --            | increase t{> app}
 --            | rate t{> app}
@@ -102,6 +107,9 @@ import           Text.Megaparsec                      (SourcePos)
 
 -- | Source location.
 type Loc = SourcePos
+
+data LabelConstraint = LabelConstraintEq (Labelled String) | LabelConstraintNotEq (Labelled String)
+  deriving (Show, Eq, Ord)
 
 data Expr =
     Let Loc Identifier Expr Expr
@@ -129,13 +137,14 @@ data Expr =
   | Epoch Loc
   | Now Loc
   | Range Loc Expr Expr Expr (Maybe Expr)
-  | FilterByLabel Loc (Set (Labelled String)) Expr
+  | FilterByLabel Loc (Set LabelConstraint) Expr
   | Max Loc Expr
   | Min Loc Expr
   | Avg Loc Expr
   | Filter Loc Expr Expr
   | Join Loc Expr Expr
   | Map Loc Expr Expr
+  | Round Loc Expr
   | Abs Loc Expr
   | Increase Loc Expr
   | Rate Loc Expr
@@ -188,6 +197,7 @@ getLoc (Filter l _ _) = l
 getLoc (Join l _ _) = l
 getLoc (Map l _ _) = l
 getLoc (Abs l _) = l
+getLoc (Round l _) = l
 getLoc (Increase l _) = l
 getLoc (Rate l _) = l
 getLoc (AvgOverTime l _) = l
@@ -205,8 +215,9 @@ getLoc (Truth l) = l
 getLoc (Falsity l) = l
 getLoc (App l _ _) = l
 
-mkRange :: Loc -> Expr -> (Expr, Expr, Maybe Expr) -> Expr
-mkRange loc t (a, b, c) = Range loc t a b c
+mkRange :: Loc -> Expr -> Either (Expr, Expr, Maybe Expr) (Set LabelConstraint) -> Expr
+mkRange loc t (Left (a, b, c)) = Range loc t a b c
+mkRange loc t (Right set) = FilterByLabel loc set t
 
 mkApp :: Loc -> Expr -> [Expr] -> Expr
 mkApp l = foldl' (App l)

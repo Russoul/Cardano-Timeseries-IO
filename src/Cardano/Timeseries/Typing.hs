@@ -13,12 +13,12 @@ module Cardano.Timeseries.Typing(
   TyPrec(..),
   ty) where
 import           Cardano.Timeseries.Data.SnocList
-import           Cardano.Timeseries.Domain.Identifier (Identifier)
+import           Cardano.Timeseries.Domain.Identifier (Identifier (..))
 import qualified Cardano.Timeseries.Query.Expr        as Semantic
 import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
-import           Data.Text                            (Text)
+import           Data.Text                            (Text, pack)
 import qualified Data.Text                            as Text
 
 -- | Typing of a query expression.
@@ -57,9 +57,13 @@ prettyTy _ (Hole idx) = "?" <> Text.show idx
 data Binding = LetBinding Identifier Semantic.Expr Ty
              | LambdaBinding Identifier Ty deriving (Show)
 
+prettyIdentifier ::  Identifier -> Text
+prettyIdentifier (User x) = pack x
+prettyIdentifier (Machine i) = "$" <> Text.show i
+
 prettyBinding :: Binding -> Text
-prettyBinding (LetBinding x rhs typ) = "(" <> Text.show x <> " ≔ " <> "..." <> " : " <> prettyTy Loose typ <> ")"
-prettyBinding (LambdaBinding x typ) = "(" <> Text.show x <> " : " <> prettyTy Loose typ <> ")"
+prettyBinding (LetBinding x rhs typ) = "(" <> prettyIdentifier x <> " ≔ " <> "..." <> " : " <> prettyTy Loose typ <> ")"
+prettyBinding (LambdaBinding x typ) = "(" <> prettyIdentifier x <> " : " <> prettyTy Loose typ <> ")"
 
 identifier :: Binding -> Identifier
 identifier (LetBinding x _ _)  = x
