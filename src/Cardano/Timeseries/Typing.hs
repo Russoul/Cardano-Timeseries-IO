@@ -18,7 +18,7 @@ import qualified Cardano.Timeseries.Query.Expr        as Semantic
 import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
-import           Data.Text                            (Text, pack)
+import           Data.Text                            (Text)
 import qualified Data.Text                            as Text
 
 -- | Typing of a query expression.
@@ -58,7 +58,7 @@ data Binding = LetBinding Identifier Semantic.Expr Ty
              | LambdaBinding Identifier Ty deriving (Show)
 
 prettyIdentifier ::  Identifier -> Text
-prettyIdentifier (User x) = pack x
+prettyIdentifier (User x)    = x
 prettyIdentifier (Machine i) = "$" <> Text.show i
 
 prettyBinding :: Binding -> Text

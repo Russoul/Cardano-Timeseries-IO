@@ -10,11 +10,11 @@ import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmetic
 import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation,
                                                               prettyBinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
+import           Cardano.Timeseries.Query.Expr               (LabelConstraint (..))
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
 import           Cardano.Timeseries.Query.Types              (HoleIdentifier)
 import           Cardano.Timeseries.Resolve
-import           Cardano.Timeseries.Surface.Expr             (LabelConstraint (..),
-                                                              Loc, getLoc)
+import           Cardano.Timeseries.Surface.Expr             (Loc, getLoc)
 import qualified Cardano.Timeseries.Surface.Expr             as Surface
 import           Cardano.Timeseries.Surface.Unify            (UnificationProblem (..),
                                                               UnifyM)
@@ -253,13 +253,13 @@ solveToScalarElabProblem gam loc expr Scalar hole = do
   modify $ updateDefs $ instantiateExpr hole expr
   pure $ Just ([], [])
 solveToScalarElabProblem gam loc expr Bool hole = do
-  modify $ updateDefs $ instantiateExpr hole (Semantic.Application (Semantic.Builtin Semantic.BoolToScalar) (expr :| []))
+  modify $ updateDefs $ instantiateExpr hole (Semantic.BoolToScalar expr)
   pure $ Just ([], [])
 solveToScalarElabProblem gam loc expr Duration hole = do
-  modify $ updateDefs $ instantiateExpr hole (Semantic.Application (Semantic.Builtin Semantic.DurationToScalar) (expr :| []))
+  modify $ updateDefs $ instantiateExpr hole (Semantic.DurationToScalar expr)
   pure $ Just ([], [])
 solveToScalarElabProblem gam loc expr Timestamp hole = do
-  modify $ updateDefs $ instantiateExpr hole (Semantic.Application (Semantic.Builtin Semantic.TimestampToScalar) (expr :| []))
+  modify $ updateDefs $ instantiateExpr hole (Semantic.TimestampToScalar expr)
   pure $ Just ([], [])
 solveToScalarElabProblem gam loc expr (Hole _) hole = pure Nothing
 solveToScalarElabProblem gam loc expr badType hole = throwError
@@ -280,12 +280,12 @@ solveCanonicalBinaryRelationElabProblem :: Context
 solveCanonicalBinaryRelationElabProblem gam loc lhs (InstantVector Scalar) rel rhs Scalar hole (InstantVector Scalar) = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryRelation.embedInstantVectorScalar rel)) (NonEmpty.fromList [lhs, rhs]))
+      (BinaryRelation.embedInstantVectorScalar rel lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryRelation.embedScalar rel)) (NonEmpty.fromList [lhs, rhs]))
+      (BinaryRelation.embedScalar rel lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryRelationElabProblem _ _ _ _ _ _ _ _ _ = pure Nothing
 
@@ -353,28 +353,28 @@ solveCanonicalBinaryArithmeticOpElabProblem :: Context
 solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.FastForward) (NonEmpty.fromList [lhs, rhs]))
+      (Semantic.FastForward lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Duration hole Duration = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.AddDuration) (NonEmpty.fromList [lhs, rhs]))
+      (Semantic.AddDuration lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin Semantic.Rewind) (NonEmpty.fromList [lhs, rhs]))
+      (Semantic.Rewind lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs Scalar hole Scalar = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryArithmeticOp.embedScalar op)) (NonEmpty.fromList [lhs, rhs]))
+      (BinaryArithmeticOp.embedScalar op lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryArithmeticOpElabProblem gam loc lhs (InstantVector Scalar)
   op rhs Scalar hole (InstantVector Scalar) = do
   modify $ updateDefs $
     instantiateExpr hole
-      (Semantic.Application (Semantic.Builtin (BinaryArithmeticOp.embedInstantVectorScalar op)) (NonEmpty.fromList [lhs, rhs]))
+      (BinaryArithmeticOp.embedInstantVectorScalar op lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryArithmeticOpElabProblem _ _ _ _ _ _ _ _ _ = pure Nothing
 
@@ -394,14 +394,18 @@ solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithm
     BinaryArithmeticOpElabProblem gam loc rhs Timestamp BinaryArithmeticOp.Add lhs Duration hole Timestamp])
 solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs rhsTy hole typ = do
   pure $ Just ([UnificationProblem loc rhsTy Duration, UnificationProblem loc typ Timestamp],
-               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp])
+    [BinaryArithmeticOp $
+      BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Add rhs Duration hole Timestamp])
 solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy BinaryArithmeticOp.Add rhs Timestamp hole typ = do
   pure $ Just ([UnificationProblem loc lhsTy Duration, UnificationProblem loc typ Timestamp],
-               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Timestamp])
+    [BinaryArithmeticOp $
+      BinaryArithmeticOpElabProblem gam loc lhs Duration BinaryArithmeticOp.Add rhs Timestamp hole Timestamp])
 solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs rhsTy hole typ = do
   pure $ Just ([UnificationProblem loc rhsTy Duration, UnificationProblem loc typ Timestamp],
-               [BinaryArithmeticOp $ BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp])
-solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy@(InstantVector _) op rhs rhsTy@(InstantVector _) hole Scalar =
+    [BinaryArithmeticOp $
+      BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp])
+solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy@(InstantVector _) op rhs
+    rhsTy@(InstantVector _) hole Scalar =
   throwError
     [i| Incompatibility: (_ : #{prettyTy Loose lhsTy}) #{prettyOp op} (_ : #{prettyTy Loose rhsTy}) |]
 solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs (InstantVector Scalar) hole typ = do
@@ -480,175 +484,127 @@ solveGeneralElabProblem gam (Surface.Number l f) x typ = do
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Truth l) x typ = do
   let u = UnificationProblem l typ Bool
-  modify (updateDefs $ instantiateExpr x (Semantic.Builtin Semantic.True))
+  modify (updateDefs $ instantiateExpr x Semantic.True)
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Falsity l) x typ = do
   let u = UnificationProblem l typ Bool
-  modify (updateDefs $ instantiateExpr x (Semantic.Builtin Semantic.False))
+  modify (updateDefs $ instantiateExpr x Semantic.False)
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Epoch l) x typ = do
   let u = UnificationProblem l typ Timestamp
-  modify (updateDefs $ instantiateExpr x (Semantic.Builtin Semantic.Epoch))
+  modify (updateDefs $ instantiateExpr x Semantic.Epoch)
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Now l) x typ = do
   let u = UnificationProblem l typ Timestamp
-  modify (updateDefs $ instantiateExpr x (Semantic.Builtin Semantic.Now))
+  modify (updateDefs $ instantiateExpr x Semantic.Now)
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Milliseconds l n) x typ = do
   let u = UnificationProblem l typ Duration
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Milliseconds)
-        (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
+    instantiateExpr x $ Semantic.Milliseconds n
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Seconds l n) x typ = do
   let u = UnificationProblem l typ Duration
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Seconds)
-        (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
+    instantiateExpr x $ Semantic.Seconds n
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Minutes l n) x typ = do
   let u = UnificationProblem l typ Duration
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Minutes)
-        (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
+    instantiateExpr x $ Semantic.Minutes n
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Hours l n) x typ = do
   let u = UnificationProblem l typ Duration
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Hours)
-        (NonEmpty.fromList [Semantic.Number (fromIntegral n)])
+    instantiateExpr x $ Semantic.Hours n
   pure ([u], [])
 solveGeneralElabProblem gam (Surface.Or l a b) x typ = do
   let u = UnificationProblem l typ Bool
-  ax <- freshExprHole Bool
-  ay <- freshExprHole Bool
-  let e1 = General $ GeneralElabProblem gam a ax Bool
-  let e2 = General $ GeneralElabProblem gam b ay Bool
+  ah <- freshExprHole Bool
+  bh <- freshExprHole Bool
+  let e1 = General $ GeneralElabProblem gam a ah Bool
+  let e2 = General $ GeneralElabProblem gam b bh Bool
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Or)
-        (NonEmpty.fromList [Semantic.Hole ax, Semantic.Hole ay])
+    instantiateExpr x $ Semantic.Or (Semantic.Hole ah) (Semantic.Hole bh)
   pure ([u], [e1, e2])
 solveGeneralElabProblem gam (Surface.And l a b) x typ = do
   let u = UnificationProblem l typ Bool
-  ax <- freshExprHole Bool
-  ay <- freshExprHole Bool
-  let e1 = General $ GeneralElabProblem gam a ax Bool
-  let e2 = General $ GeneralElabProblem gam b ay Bool
+  ah <- freshExprHole Bool
+  bh <- freshExprHole Bool
+  let e1 = General $ GeneralElabProblem gam a ah Bool
+  let e2 = General $ GeneralElabProblem gam b bh Bool
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.And)
-        (NonEmpty.fromList [Semantic.Hole ax, Semantic.Hole ay])
+    instantiateExpr x $ Semantic.And (Semantic.Hole ah) (Semantic.Hole bh)
   pure ([u], [e1, e2])
 solveGeneralElabProblem gam (Surface.Not l a) x typ = do
   let u = UnificationProblem l typ Bool
   x' <- freshExprHole Bool
   let e1 = General $ GeneralElabProblem gam a x' Bool
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Not)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.Not (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Abs l a) x typ = do
   let u = UnificationProblem l typ Scalar
   x' <- freshExprHole Scalar
   let e1 = General $ GeneralElabProblem gam a x' Scalar
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Abs)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.Abs (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Round l a) x typ = do
   let u = UnificationProblem l typ Scalar
   x' <- freshExprHole Scalar
   let e1 = General $ GeneralElabProblem gam a x' Scalar
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.RoundScalar)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.RoundScalar (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Increase l a) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
   x' <- freshExprHole (RangeVector Scalar)
   let e1 = General $ GeneralElabProblem gam a x' (RangeVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Increase)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.Increase (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Rate l a) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
   x' <- freshExprHole (RangeVector Scalar)
   let e1 = General $ GeneralElabProblem gam a x' (RangeVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Rate)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.Rate (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Max l a) x typ = do
   let u = UnificationProblem l typ Scalar
   x' <- freshExprHole (InstantVector Scalar)
   let e1 = General $ GeneralElabProblem gam a x' (InstantVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Max)
-        (NonEmpty.fromList [Semantic.Hole x'])
+    instantiateExpr x $ Semantic.Max (Semantic.Hole x')
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Min l v) x typ = do
   let u = UnificationProblem l typ Scalar
   vh <- freshExprHole (InstantVector Scalar)
   let e1 = General $ GeneralElabProblem gam v vh (InstantVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Min)
-        (NonEmpty.fromList [Semantic.Hole vh])
+    instantiateExpr x $ Semantic.Min (Semantic.Hole vh)
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.Avg l v) x typ = do
   let u = UnificationProblem l typ Scalar
   vh <- freshExprHole (InstantVector Scalar)
   let e1 = General $ GeneralElabProblem gam v vh (InstantVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Avg)
-        (NonEmpty.fromList [Semantic.Hole vh])
+    instantiateExpr x $ Semantic.Avg (Semantic.Hole vh)
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.AvgOverTime l r) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
   rh <- freshExprHole (RangeVector Scalar)
   let e1 = General $ GeneralElabProblem gam r rh (RangeVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.AvgOverTime)
-        (NonEmpty.fromList [Semantic.Hole rh])
+    instantiateExpr x $ Semantic.AvgOverTime (Semantic.Hole rh)
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.SumOverTime l r) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
   rh <- freshExprHole (RangeVector Scalar)
   let e1 = General $ GeneralElabProblem gam r rh (RangeVector Scalar)
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.AvgOverTime)
-        (NonEmpty.fromList [Semantic.Hole rh])
+    instantiateExpr x $ Semantic.AvgOverTime (Semantic.Hole rh)
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.QuantileOverTime l k r) x typ = do
   let u = UnificationProblem l typ (InstantVector Scalar)
@@ -657,10 +613,7 @@ solveGeneralElabProblem gam (Surface.QuantileOverTime l k r) x typ = do
   kh <- freshExprHole Scalar
   let e2 = General $ GeneralElabProblem gam k kh Scalar
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.QuantileOverTime)
-        (NonEmpty.fromList [Semantic.Hole kh, Semantic.Hole rh])
+    instantiateExpr x $ Semantic.QuantileOverTime (Semantic.Hole kh) (Semantic.Hole rh)
   pure ([u], [e1])
 solveGeneralElabProblem gam (Surface.QuantileBy loc ls k v) x typ = do
   let u = UnificationProblem loc typ (InstantVector Scalar)
@@ -669,10 +622,8 @@ solveGeneralElabProblem gam (Surface.QuantileBy loc ls k v) x typ = do
   kh <- freshExprHole Scalar
   let e2 = General $ GeneralElabProblem gam k kh Scalar
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.QuantileBy)
-        (NonEmpty.fromList ([Semantic.Hole kh, Semantic.Hole vh] ++ fmap Semantic.Str (Set.toList ls)))
+    instantiateExpr x $ Semantic.QuantileBy
+      ls (Semantic.Hole kh) (Semantic.Hole vh)
   pure ([u], [e1, e2])
 solveGeneralElabProblem gam (Surface.Range l expr t0 t1 Nothing) x typ = do
   tyh <- freshTyHole
@@ -685,9 +636,11 @@ solveGeneralElabProblem gam (Surface.Range l expr t0 t1 Nothing) x typ = do
   let e3 = General $ GeneralElabProblem gam t1 t1h Timestamp
   modify $ updateDefs $
     instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Range)
-        (NonEmpty.fromList [Semantic.Hole exprh, Semantic.Hole t0h, Semantic.Hole t1h])
+        Semantic.Range
+        (Semantic.Hole exprh)
+        (Semantic.Hole t0h)
+        (Semantic.Hole t1h)
+        Nothing
   pure ([u], [e1, e2, e3])
 solveGeneralElabProblem gam (Surface.Range l expr t0 t1 (Just step)) x typ = do
   tyh <- freshTyHole
@@ -702,9 +655,11 @@ solveGeneralElabProblem gam (Surface.Range l expr t0 t1 (Just step)) x typ = do
   let e4 = General $ GeneralElabProblem gam step steph Duration
   modify $ updateDefs $
     instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Range)
-        (NonEmpty.fromList [Semantic.Hole exprh, Semantic.Hole t0h, Semantic.Hole t1h, Semantic.Hole steph])
+        Semantic.Range
+        (Semantic.Hole exprh)
+        (Semantic.Hole t0h)
+        (Semantic.Hole t1h)
+        (Just (Semantic.Hole steph))
   pure ([u], [e1, e2, e3, e4])
 solveGeneralElabProblem gam (Surface.Fst l t) x typ = do
   tyah <- freshTyHole
@@ -713,10 +668,7 @@ solveGeneralElabProblem gam (Surface.Fst l t) x typ = do
   th <- freshExprHole (Ty.Pair (Hole tyah) (Hole tybh))
   let e = General $ GeneralElabProblem gam t th (Ty.Pair (Hole tyah) (Hole tybh))
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Fst)
-        (NonEmpty.fromList [Semantic.Hole th])
+    instantiateExpr x $ Semantic.Fst (Semantic.Hole th)
   pure ([u], [e])
 solveGeneralElabProblem gam (Surface.Snd l t) x typ = do
   tyah <- freshTyHole
@@ -725,10 +677,7 @@ solveGeneralElabProblem gam (Surface.Snd l t) x typ = do
   th <- freshExprHole (Ty.Pair (Hole tyah) (Hole tybh))
   let e = General $ GeneralElabProblem gam t th (Ty.Pair (Hole tyah) (Hole tybh))
   modify $ updateDefs $
-    instantiateExpr x $
-      Semantic.Application
-        (Semantic.Builtin Semantic.Snd)
-        (NonEmpty.fromList [Semantic.Hole th])
+    instantiateExpr x $ Semantic.Snd (Semantic.Hole th)
   pure ([u], [e])
 solveGeneralElabProblem gam (Surface.MkPair l a b) x typ = do
   tyah <- freshTyHole
@@ -794,8 +743,8 @@ solveGeneralElabProblem gam (Surface.Filter l f v) h hty = do
   argTy <- freshTyHole
   fh <- freshExprHole (Fun (Hole argTy) Bool)
   vh <- freshExprHole (InstantVector (Hole argTy))
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Filter)
-    (NonEmpty.fromList [Semantic.Hole fh, Semantic.Hole vh])
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.Filter (Semantic.Hole fh) (Semantic.Hole vh)
   pure ([UnificationProblem l hty (InstantVector (Hole argTy))],
         [General $ GeneralElabProblem gam f fh (Fun (Hole argTy) Bool),
          General $ GeneralElabProblem gam v vh (InstantVector (Hole argTy))
@@ -804,29 +753,18 @@ solveGeneralElabProblem gam (Surface.Filter l f v) h hty = do
 solveGeneralElabProblem gam (Surface.FilterByLabel loc ls v) h hty = do
   argTy <- freshTyHole
   vh <- freshExprHole (InstantVector (Hole argTy))
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.FilterByLabel)
-    (NonEmpty.fromList (Semantic.Hole vh : elabLabelConstraints (Set.toList ls)))
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.FilterByLabel ls (Semantic.Hole vh)
   pure ([UnificationProblem loc hty (InstantVector (Hole argTy))],
         [General $ GeneralElabProblem gam v vh (InstantVector (Hole argTy))]
        )
-  where
-    elabLabelConstraint :: LabelConstraint -> Semantic.Expr
-    elabLabelConstraint (LabelConstraintEq (x, v)) =
-      Semantic.MkPair (Semantic.Str x) (Semantic.Str v)
-    elabLabelConstraint (LabelConstraintNotEq (x, v)) =
-      Semantic.MkPair
-        (Semantic.Str x)
-        (Semantic.Application (Semantic.Builtin Semantic.Inv) (Semantic.Str v :| []))
-
-    elabLabelConstraints :: [LabelConstraint] -> [Semantic.Expr]
-    elabLabelConstraints = fmap elabLabelConstraint
 solveGeneralElabProblem gam (Surface.Map l f v) h hty = do
   aTy <- freshTyHole
   bTy <- freshTyHole
   fh <- freshExprHole (Fun (Hole aTy) (Hole bTy))
   vh <- freshExprHole (InstantVector (Hole aTy))
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Map)
-    (NonEmpty.fromList [Semantic.Hole fh, Semantic.Hole vh])
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.Map (Semantic.Hole fh) (Semantic.Hole vh)
   pure ([UnificationProblem l hty (InstantVector (Hole bTy))],
         [General $ GeneralElabProblem gam f fh (Fun (Hole aTy) (Hole bTy)),
          General $ GeneralElabProblem gam v vh (InstantVector (Hole aTy))
@@ -837,8 +775,8 @@ solveGeneralElabProblem gam (Surface.Join l v u) h hty = do
   bTy <- freshTyHole
   vh <- freshExprHole (InstantVector (Hole aTy))
   uh <- freshExprHole (InstantVector (Hole bTy))
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Join)
-    (NonEmpty.fromList [Semantic.Hole vh, Semantic.Hole uh])
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.Join (Semantic.Hole vh) (Semantic.Hole uh)
   pure ([UnificationProblem l hty (InstantVector (Ty.Pair (Hole aTy) (Hole bTy)))],
         [General $ GeneralElabProblem gam v vh (InstantVector (Hole aTy)),
          General $ GeneralElabProblem gam u uh (InstantVector (Hole bTy))
@@ -849,8 +787,8 @@ solveGeneralElabProblem gam (Surface.Unless l v u) h hty = do
   bTy <- freshTyHole
   vh <- freshExprHole (InstantVector (Hole aTy))
   uh <- freshExprHole (InstantVector (Hole bTy))
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Builtin Semantic.Unless)
-    (NonEmpty.fromList [Semantic.Hole vh, Semantic.Hole uh])
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.Unless (Semantic.Hole vh) (Semantic.Hole uh)
   pure ([UnificationProblem l hty (InstantVector (Hole aTy))],
         [General $ GeneralElabProblem gam v vh (InstantVector (Hole aTy)),
          General $ GeneralElabProblem gam u uh (InstantVector (Hole bTy))
@@ -861,8 +799,8 @@ solveGeneralElabProblem gam (Surface.App l f e) h hty = do
   bTy <- freshTyHole
   fh <- freshExprHole (Fun (Hole aTy) (Hole bTy))
   eh <- freshExprHole (Hole aTy)
-  modify $ updateDefs $ instantiateExpr h $ Semantic.Application (Semantic.Hole fh)
-    (NonEmpty.fromList [Semantic.Hole eh])
+  modify $ updateDefs $ instantiateExpr h $
+    Semantic.Application (Semantic.Hole fh) (Semantic.Hole eh)
   pure ([UnificationProblem l hty (Hole bTy)],
         [General $ GeneralElabProblem gam f fh (Fun (Hole aTy) (Hole bTy)),
          General $ GeneralElabProblem gam e eh (Hole aTy)

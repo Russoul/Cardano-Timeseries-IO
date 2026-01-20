@@ -1,4 +1,4 @@
-module Cardano.Timeseries.Surface.Expr(LabelConstraint(..), Expr(..), mkRange, mkApp, Loc, getLoc) where
+module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp, Loc, getLoc) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
@@ -6,6 +6,8 @@ import           Data.List                            (foldl')
 import           Data.Set                             (Set)
 import           Data.Text                            (Text)
 import           Text.Megaparsec                      (SourcePos)
+import Cardano.Timeseries.Query.Expr (LabelConstraint)
+import Data.Word (Word64)
 
 -- ---- not ----
 -- not < atom
@@ -108,9 +110,6 @@ import           Text.Megaparsec                      (SourcePos)
 -- | Source location.
 type Loc = SourcePos
 
-data LabelConstraint = LabelConstraintEq (Labelled String) | LabelConstraintNotEq (Labelled String)
-  deriving (Show, Eq, Ord)
-
 data Expr =
     Let Loc Identifier Expr Expr
   | Lambda Loc Identifier Expr
@@ -130,10 +129,10 @@ data Expr =
   | Not Loc Expr
   | Or Loc Expr Expr
   | And Loc Expr Expr
-  | Milliseconds Loc Int
-  | Seconds Loc Int
-  | Minutes Loc Int
-  | Hours Loc Int
+  | Milliseconds Loc Word64
+  | Seconds Loc Word64
+  | Minutes Loc Word64
+  | Hours Loc Word64
   | Epoch Loc
   | Now Loc
   | Range Loc Expr Expr Expr (Maybe Expr)
@@ -157,7 +156,7 @@ data Expr =
   | Latest Loc Identifier
   | ToScalar Loc Expr
   | Variable Loc Identifier
-  | Str Loc String
+  | Str Loc Text
   | Number Loc Double
   | Truth Loc
   | Falsity Loc

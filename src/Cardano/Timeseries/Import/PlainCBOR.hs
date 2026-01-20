@@ -51,7 +51,7 @@ numericValueToDouble (NVDouble x) = x
 
 scrapeDatapointToPoint :: Text -> POSIXTime -> Text -> NumericValue -> Point Double
 scrapeDatapointToPoint node t metric v =
-  Point (unpack metric) (Instant (Set.fromList [("node", unpack node)]) (floor (t * 1000)) (numericValueToDouble v))
+  Point metric (Instant (Set.fromList [("node", node)]) (floor (t * 1000)) (numericValueToDouble v))
 
 snapshotToFlatStore :: Snapshot -> Flat Double
 snapshotToFlatStore (Snapshot l t s) = Map.foldlWithKey' (\acc k v -> scrapeDatapointToPoint l t k v : acc) [] s

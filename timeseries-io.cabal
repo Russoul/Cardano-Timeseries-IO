@@ -68,7 +68,6 @@ library
       Cardano.Timeseries.Query.BinaryArithmeticOp,
       Cardano.Timeseries.Query.BinaryRelation,
       Cardano.Timeseries.Query.Expr,
-      Cardano.Timeseries.Query.Expr.Parser,
       Cardano.Timeseries.Surface.Elab,
       Cardano.Timeseries.Surface.Expr,
       Cardano.Timeseries.Surface.Expr.Head,

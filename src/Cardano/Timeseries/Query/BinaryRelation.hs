@@ -7,8 +7,8 @@ module Cardano.Timeseries.Query.BinaryRelation(
   mbBinaryRelationScalar,
   swapInstantVectorScalar,
   materializeScalar) where
-import           Cardano.Timeseries.Query.Expr (Function (..))
 import Data.Text (Text)
+import Cardano.Timeseries.Query.Expr (Expr(..))
 
 -- | A datatype used to carve out a subset of `Function` that represents binary relations.
 data BinaryRelation = Eq | Lt | Lte | Gt | Gte | NotEq deriving (Show, Eq, Ord)
@@ -21,7 +21,7 @@ prettyBinaryRelation Gt = ">"
 prettyBinaryRelation Gte = ">="
 prettyBinaryRelation NotEq = "!="
 
-embedScalar :: BinaryRelation -> Function
+embedScalar :: BinaryRelation -> Expr -> Expr -> Expr
 embedScalar Eq    = EqScalar
 embedScalar Lt    = LtScalar
 embedScalar Lte   = LteScalar
@@ -29,7 +29,7 @@ embedScalar Gt    = GtScalar
 embedScalar Gte   = GteScalar
 embedScalar NotEq = NotEqScalar
 
-embedInstantVectorScalar :: BinaryRelation -> Function
+embedInstantVectorScalar :: BinaryRelation -> Expr -> Expr -> Expr
 embedInstantVectorScalar Eq    = EqInstantVectorScalar
 embedInstantVectorScalar Lt    = LtInstantVectorScalar
 embedInstantVectorScalar Lte   = LteInstantVectorScalar
@@ -51,23 +51,23 @@ swapInstantVectorScalar Lte   = Gte
 swapInstantVectorScalar Gt    = Lt
 swapInstantVectorScalar Gte   = Lte
 
-mbBinaryRelationInstantVector :: Function -> Maybe BinaryRelation
-mbBinaryRelationInstantVector EqInstantVectorScalar    = Just Eq
-mbBinaryRelationInstantVector LtInstantVectorScalar    = Just Lt
-mbBinaryRelationInstantVector LteInstantVectorScalar   = Just Lte
-mbBinaryRelationInstantVector GtInstantVectorScalar    = Just Gt
-mbBinaryRelationInstantVector GteInstantVectorScalar   = Just Gte
-mbBinaryRelationInstantVector NotEqInstantVectorScalar = Just NotEq
-mbBinaryRelationInstantVector _                        = Nothing
+mbBinaryRelationInstantVector :: Expr -> Maybe (Expr, BinaryRelation, Expr)
+mbBinaryRelationInstantVector (EqInstantVectorScalar a b)    = Just (a, Eq, b)
+mbBinaryRelationInstantVector (LtInstantVectorScalar a b)    = Just (a, Lt, b)
+mbBinaryRelationInstantVector (LteInstantVectorScalar a b)   = Just (a, Lte, b)
+mbBinaryRelationInstantVector (GtInstantVectorScalar a b)    = Just (a, Gt, b)
+mbBinaryRelationInstantVector (GteInstantVectorScalar a b)   = Just (a, Gte, b)
+mbBinaryRelationInstantVector (NotEqInstantVectorScalar a b) = Just (a, NotEq, b)
+mbBinaryRelationInstantVector _                              = Nothing
 
-mbBinaryRelationScalar :: Function -> Maybe BinaryRelation
-mbBinaryRelationScalar EqScalar    = Just Eq
-mbBinaryRelationScalar LtScalar    = Just Lt
-mbBinaryRelationScalar LteScalar   = Just Lte
-mbBinaryRelationScalar GtScalar    = Just Gt
-mbBinaryRelationScalar GteScalar   = Just Gte
-mbBinaryRelationScalar NotEqScalar = Just NotEq
-mbBinaryRelationScalar _           = Nothing
+mbBinaryRelationScalar :: Expr -> Maybe (Expr, BinaryRelation, Expr)
+mbBinaryRelationScalar (EqScalar a b)    = Just (a, Eq, b)
+mbBinaryRelationScalar (LtScalar a b)    = Just (a, Lt, b)
+mbBinaryRelationScalar (LteScalar a b)   = Just (a, Lte, b)
+mbBinaryRelationScalar (GtScalar a b)    = Just (a, Gt, b)
+mbBinaryRelationScalar (GteScalar a b)   = Just (a, Gte, b)
+mbBinaryRelationScalar (NotEqScalar a b) = Just (a, NotEq, b)
+mbBinaryRelationScalar _                 = Nothing
 
 materializeScalar :: BinaryRelation -> Double -> Double -> Bool
 materializeScalar Eq    = (==)

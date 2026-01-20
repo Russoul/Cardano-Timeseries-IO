@@ -14,9 +14,11 @@ import           Data.Attoparsec.Text              (Parser, decimal, endOfLine,
 import           Data.Char                         (isAlpha)
 import           Data.Set                          (fromList)
 import           Data.Word                         (Word64)
+import Data.Text (Text)
+import qualified Data.Text as Text
 
-identifier :: Parser String
-identifier = (:) <$> firstChar <*> many' nextChar where
+identifier :: Parser Text
+identifier = Text.pack <$> ((:) <$> firstChar <*> many' nextChar) where
   firstChar :: Parser Char
   firstChar = satisfy (\x -> isAlpha x || x == '_')
 
@@ -36,7 +38,7 @@ point value = makePoint
 
       where
 
-  makePoint :: MetricIdentifier -> [Labelled String] -> Timestamp -> a -> Point a
+  makePoint :: MetricIdentifier -> [Labelled Text] -> Timestamp -> a -> Point a
   makePoint n ls t v = Point n (Instant (fromList ls) t v)
 
   comma :: Parser ()
@@ -51,13 +53,13 @@ point value = makePoint
   inBrackets :: forall a. Parser a -> Parser a
   inBrackets f = string "[" *> skipMany space *> f <* skipMany space <* string "]"
 
-  metric :: Parser String
+  metric :: Parser Text
   metric = identifier
 
-  labelValue :: Parser String
-  labelValue = many' $ satisfy (\x -> isAlpha x || x == '_' || isDigit x)
+  labelValue :: Parser Text
+  labelValue = Text.pack <$> many' (satisfy (\x -> isAlpha x || x == '_' || isDigit x))
 
-  labels :: Parser [(String, String)]
+  labels :: Parser [(Text, Text)]
   labels = sepBy'
     ((,) <$> (skipMany space *> identifier) <* equals <*> inDoublequotes labelValue)
     comma

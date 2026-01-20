@@ -7,7 +7,6 @@ module Main where
 import           Cardano.Timeseries.Import.PlainCBOR
 import           Cardano.Timeseries.Interp              (interp)
 import           Cardano.Timeseries.Interp.Value        (Value)
-import           Cardano.Timeseries.Query.Expr.Parser   (expr)
 import           Cardano.Timeseries.Store
 import           Cardano.Timeseries.Store.Flat          (Flat,
                                                          Point (instant, name))
@@ -32,6 +31,7 @@ import           System.Exit                            (die)
 import           System.IO                              (hFlush, stdout)
 import           Text.Megaparsec                        hiding (count)
 import           Text.Megaparsec.Char                   (space)
+import qualified Data.Text.IO as Text
 
 snapshotsFile :: String
 snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
@@ -60,11 +60,15 @@ interactive store = forever $ do
  putStr "> "
  hFlush stdout
  queryString <- getLine
- case parse (expr <* space <* eof) "input" (pack queryString) of
+ case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
    Left err -> putStrLn (errorBundlePretty err)
-   Right query -> do
-     putStrLn ("Expr: " <> show query)
-     printQueryResult (evalState (runExceptT $ interp store mempty query 0) 0)
+   Right surfaceQuery -> do
+     -- putStrLn ("Surface expr: " <> show surfaceQuery)
+     case evalState (runExceptT (elab surfaceQuery)) initialSt of
+       Left err   -> Text.putStrLn err
+       Right query -> do
+         -- putStrLn (show expr)
+         printQueryResult (evalState (runExceptT $ interp store mempty query 0) 0)
 
 main1 :: IO ()
 main1 = do
@@ -73,7 +77,7 @@ main1 = do
   let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
   putStrLn "Created a store!"
   putStrLn "Metrics:"
-  for_ (Map.keys store) (\k -> putStrLn ("  — " <> k))
+  for_ (Map.keys store) (\k -> Text.putStrLn ("  — " <> k))
   interactive store
 
 main2 :: IO ()

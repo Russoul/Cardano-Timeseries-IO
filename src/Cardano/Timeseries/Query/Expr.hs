@@ -1,145 +1,14 @@
-module Cardano.Timeseries.Query.Expr(Function(..), Expr(..)) where
+module Cardano.Timeseries.Query.Expr(LabelConstraint(..), Expr(..)) where
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
+import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
 import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.List.NonEmpty                   (NonEmpty)
+import           Data.Set                             (Set)
+import           Data.Text                            (Text)
+import Data.Word (Word64)
 
-{- f ::= <floating-point>
- - x ::= <identifier>
- - s ::= <string-in-double-quotes>
- - c ::= add_instant_vector
- -     | mul_instant_vector
- -     | eq_instant_vector
- -     | not_eq_instant_vector
- -     | lt_instant_vector
- -     | lte_instant_vector
- -     | gt_instant_vector
- -     | gte_instant_vector
- -     | true
- -     | false
- -     | or
- -     | and
- -     | not
- -     | eq_bool
- -     | add_scalar
- -     | sub_scalar
- -     | mul_scalar
- -     | div_scalar
- -     | eq_scalar
- -     | not_eq_scalar
- -     | lt_scalar
- -     | lte_scalar
- -     | gt_scalar
- -     | gte_scalar
- -     | bool_to_scalar
- -     | instant_vector_to_scalar
- -     | minutes
- -     | seconds
- -     | milliseconds
- -     | hours
- -     | eval
- -     | avg
- -     | avg_over_time
- -     | quantile
- -     | quantile_over_time
- -     | min
- -     | max
- -     | abs
- -     | round_scalar
- -     | duration_to_scalar
- -     | add_duration
- -     | now
- -     | epoch
- -     | rewind
- -     | fast_forward
- -     | timestamp_to_scalar
- -     | sum_over_time
- -     | rate
- -     | increase
- -     | fst
- -     | snd
- -     | range
- -     | filter_by_label
- -     | filter
- -     | join
- -     | map
- -     | earliest
- -     | latest
- -     | inv
- - e{1} ::= f | x | s | (e{≥0}) | c | (e{≥0}, e{≥0})
- - e{0} ::= e{≥1} e{≥1} e{≥1} ... e{≥1} | \x -> e{≥0} | let x = e{≥0} in e{≥0}
- -}
-
-data Function = AddInstantVectorScalar
-              | SubInstantVectorScalar
-              | MulInstantVectorScalar
-              | DivInstantVectorScalar
-              | EqInstantVectorScalar
-              | LtInstantVectorScalar
-              | LteInstantVectorScalar
-              | GtInstantVectorScalar
-              | GteInstantVectorScalar
-              | NotEqInstantVectorScalar
-
-              | True
-              | False
-              | And
-              | Or
-              | Not
-              | EqBool
-
-              | AddScalar
-              | SubScalar
-              | MulScalar
-              | DivScalar
-              | EqScalar
-              | LtScalar
-              | LteScalar
-              | GtScalar
-              | GteScalar
-              | NotEqScalar
-              | BoolToScalar
-              | InstantVectorToScalar
-              | Abs
-              | RoundScalar
-
-              | Milliseconds
-              | Seconds
-              | Minutes
-              | Hours
-              | DurationToScalar
-              | AddDuration
-
-              | Now
-              | Epoch
-              | Rewind
-              | FastForward
-              | TimestampToScalar
-
-              | AvgOverTime
-              | SumOverTime
-              | Avg
-              | QuantileBy
-              | Quantile
-              | Max
-              | Min
-              | Rate
-              | Increase
-              | QuantileOverTime
-
-              | Fst
-              | Snd
-
-              | Range
-
-              | FilterByLabel
-              | Inv
-              | Filter
-              | Unless
-              | Join
-              | Map
-              | Earliest
-              | Latest
-              deriving Show
+data LabelConstraint = LabelConstraintEq (Labelled Text) | LabelConstraintNotEq (Labelled Text)
+  deriving (Show, Eq, Ord)
 
 -- | This expression has the following property, assumed in the interpreter:
 -- |  every expression can be given at most one type and can have at most one interpretation.
@@ -148,9 +17,80 @@ data Function = AddInstantVectorScalar
 data Expr = Number Double
           | Variable Identifier
           | Str String
-          | Builtin Function
-          | Application Expr (NonEmpty Expr)
+          | Application Expr Expr
           | Lambda Identifier Expr
           | Let Identifier Expr Expr
+
+          | AddInstantVectorScalar Expr Expr
+          | SubInstantVectorScalar Expr Expr
+          | MulInstantVectorScalar Expr Expr
+          | DivInstantVectorScalar Expr Expr
+          | EqInstantVectorScalar Expr Expr
+          | LtInstantVectorScalar Expr Expr
+          | LteInstantVectorScalar Expr Expr
+          | GtInstantVectorScalar Expr Expr
+          | GteInstantVectorScalar Expr Expr
+          | NotEqInstantVectorScalar Expr Expr
+
+          | True
+          | False
+          | And Expr Expr
+          | Or Expr Expr
+          | Not Expr
+          | EqBool Expr Expr
+          -- TODO: NotEqBool
+
+          | Milliseconds Word64
+          | Seconds Word64
+          | Minutes Word64
+          | Hours Word64
+          | DurationToScalar Expr
+          | AddDuration Expr Expr
+          | Now
+          | Epoch
+          | Rewind Expr Expr
+          | FastForward Expr Expr
+          | TimestampToScalar Expr
+
+          | AddScalar Expr Expr
+          | SubScalar Expr Expr
+          | MulScalar Expr Expr
+          | DivScalar Expr Expr
+          | EqScalar Expr Expr
+          | LtScalar Expr Expr
+          | LteScalar Expr Expr
+          | GtScalar Expr Expr
+          | GteScalar Expr Expr
+          | NotEqScalar Expr Expr
+          | BoolToScalar Expr
+          | InstantVectorToScalar Expr
+          | Abs Expr
+          | RoundScalar Expr
+
           | MkPair Expr Expr
+          | Fst Expr
+          | Snd Expr
+
+          | AvgOverTime Expr
+          | SumOverTime Expr
+          | Avg Expr
+          | QuantileBy (Set Label) Expr Expr
+          | Quantile Expr Expr
+          | Max Expr
+          | Min Expr
+          | Rate Expr
+          | Increase Expr
+          | QuantileOverTime Expr Expr
+
+
+          | Filter Expr Expr
+          | Map Expr Expr
+          | Join Expr Expr
+
+          | Range Expr Expr Expr (Maybe Expr)
+
+          | Unless Expr Expr
+
+          | FilterByLabel (Set LabelConstraint) Expr
+
           | Hole HoleIdentifier deriving Show

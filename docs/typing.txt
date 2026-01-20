@@ -324,11 +324,11 @@ n integer // integer literal
 Γ ⊦ range s a b d : RangeVector a
 
 
-// Takes a subset of the instant vector by keeping only those instants whose labels
+// Takes a subset of instant vector `v` by keeping only those instants whose labels
 // satisfy the constraints c̄
 Γ ⊦ v : InstantVector a
 ----------------------------------------- ✔
-Γ ⊦ filter_by_label v c̄ : InstantVector a
+Γ ⊦ filter_by_label c̄ v : InstantVector a
 
 
 Γ ⊦ v : InstantVector Scalar

@@ -1,8 +1,8 @@
 module Cardano.Timeseries.Query.BinaryArithmeticOp(BinaryArithmeticOp(..),
   embedScalar, embedInstantVectorScalar, prettyOp,
   mbBinaryArithmeticOpScalar, mbBinaryArithmeticOpInstantVectorScalar, materializeScalar) where
-import Cardano.Timeseries.Query.Expr(Function(..))
 import Data.Text (Text)
+import Cardano.Timeseries.Query.Expr (Expr(..))
 
 data BinaryArithmeticOp = Add | Sub | Mul | Div deriving (Show, Eq, Ord)
 
@@ -12,30 +12,30 @@ prettyOp Sub = "-"
 prettyOp Mul = "*"
 prettyOp Div = "/"
 
-embedScalar :: BinaryArithmeticOp -> Function
+embedScalar :: BinaryArithmeticOp -> Expr -> Expr -> Expr
 embedScalar Add = AddScalar
 embedScalar Sub = SubScalar
 embedScalar Mul = MulScalar
 embedScalar Div = DivScalar
 
-embedInstantVectorScalar :: BinaryArithmeticOp -> Function
+embedInstantVectorScalar :: BinaryArithmeticOp -> Expr -> Expr -> Expr
 embedInstantVectorScalar Add = AddInstantVectorScalar
 embedInstantVectorScalar Sub = SubInstantVectorScalar
 embedInstantVectorScalar Mul = MulInstantVectorScalar
 embedInstantVectorScalar Div = DivInstantVectorScalar
 
-mbBinaryArithmeticOpInstantVectorScalar :: Function -> Maybe BinaryArithmeticOp
-mbBinaryArithmeticOpInstantVectorScalar AddInstantVectorScalar = Just Add
-mbBinaryArithmeticOpInstantVectorScalar SubInstantVectorScalar = Just Sub
-mbBinaryArithmeticOpInstantVectorScalar MulInstantVectorScalar = Just Mul
-mbBinaryArithmeticOpInstantVectorScalar DivInstantVectorScalar = Just Div
+mbBinaryArithmeticOpInstantVectorScalar :: Expr -> Maybe (Expr, BinaryArithmeticOp, Expr)
+mbBinaryArithmeticOpInstantVectorScalar (AddInstantVectorScalar a b) = Just (a, Add, b)
+mbBinaryArithmeticOpInstantVectorScalar (SubInstantVectorScalar a b) = Just (a, Sub, b)
+mbBinaryArithmeticOpInstantVectorScalar (MulInstantVectorScalar a b) = Just (a, Mul, b)
+mbBinaryArithmeticOpInstantVectorScalar (DivInstantVectorScalar a b) = Just (a, Div, b)
 mbBinaryArithmeticOpInstantVectorScalar _ = Nothing
 
-mbBinaryArithmeticOpScalar :: Function -> Maybe BinaryArithmeticOp
-mbBinaryArithmeticOpScalar AddScalar = Just Add
-mbBinaryArithmeticOpScalar SubScalar = Just Sub
-mbBinaryArithmeticOpScalar MulScalar = Just Mul
-mbBinaryArithmeticOpScalar DivScalar = Just Div
+mbBinaryArithmeticOpScalar :: Expr -> Maybe (Expr, BinaryArithmeticOp, Expr)
+mbBinaryArithmeticOpScalar (AddScalar a b) = Just (a, Add, b)
+mbBinaryArithmeticOpScalar (SubScalar a b) = Just (a, Sub, b)
+mbBinaryArithmeticOpScalar (MulScalar a b) = Just (a, Mul, b)
+mbBinaryArithmeticOpScalar (DivScalar a b) = Just (a, Div, b)
 mbBinaryArithmeticOpScalar _ = Nothing
 
 materializeScalar :: BinaryArithmeticOp -> Double -> Double -> Double

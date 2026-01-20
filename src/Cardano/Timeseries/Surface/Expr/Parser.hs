@@ -7,6 +7,7 @@ import           Cardano.Timeseries.Surface.Expr
 import           Control.Applicative                  hiding (many, some)
 
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
+import           Cardano.Timeseries.Query.Expr        (LabelConstraint (..))
 import           Cardano.Timeseries.Surface.Expr.Head (Head)
 import qualified Cardano.Timeseries.Surface.Expr.Head as Head
 import           Control.Monad                        (guard)
@@ -27,10 +28,11 @@ import           Text.Megaparsec.Char                 (char, space, space1,
                                                        string)
 import           Text.Megaparsec.Char.Lexer           (decimal, scientific,
                                                        signed)
+import qualified Data.Text as Text
 
 type Parser = Parsec Void Text
 
-keywords :: [String]
+keywords :: [Text]
 keywords = ["let", "in", "true", "false", "epoch", "now", "fst", "snd",
             "min", "max", "avg", "filter", "join", "map", "abs", "increase",
             "rate", "avg_over_time", "sum_over_time", "quantile_over_time", "unless",
@@ -39,8 +41,9 @@ keywords = ["let", "in", "true", "false", "epoch", "now", "fst", "snd",
 unescapedVariableIdentifierNextChar :: Parser Char
 unescapedVariableIdentifierNextChar = satisfy (\x -> isAlphaNum x || x == '_')
 
-unescapedVariableIdentifier :: Parser String
-unescapedVariableIdentifier = (:) <$> firstChar <*> many unescapedVariableIdentifierNextChar <?> "identifier" where
+unescapedVariableIdentifier :: Parser Text
+unescapedVariableIdentifier =
+  Text.pack <$> ((:) <$> firstChar <*> many unescapedVariableIdentifierNextChar) <?> "identifier" where
   firstChar :: Parser Char
   firstChar = satisfy (\x -> isAlpha x || x == '_')
 
@@ -48,12 +51,12 @@ number :: Parser Expr
 number =
   Number <$> getSourcePos <*> (toRealFloat <$> signed (pure ()) scientific <?> "number")
 
-escapedVariableIdentifier :: Parser String
-escapedVariableIdentifier = char '`' *> manyTill one (char '`') where
+escapedVariableIdentifier :: Parser Text
+escapedVariableIdentifier = Text.pack <$> (char '`' *> manyTill one (char '`')) where
   one :: Parser Char
   one = satisfy (\x -> not (isControl x) && (x /= '`') && (x /= '\n') && (x /= '\r'))
 
-literalVariableIdentifier :: Parser String
+literalVariableIdentifier :: Parser Text
 literalVariableIdentifier = do
   x <- unescapedVariableIdentifier
   guard (x `notElem` keywords)
@@ -65,8 +68,8 @@ variableIdentifier = User <$> (literalVariableIdentifier <|> escapedVariableIden
 variable :: Parser Expr
 variable = Variable <$> getSourcePos <*> variableIdentifier
 
-text :: Parser String
-text = (char '\"' *> many one) <* char '\"' where
+text :: Parser Text
+text = Text.pack <$> (char '\"' *> many one) <* char '\"' where
   one :: Parser Char
   one = satisfy (\x -> not (isControl x) && (x /= '"') && (x /= '\n') && (x /= '\r'))
 
@@ -169,7 +172,7 @@ labelConstraint = do
   space
   v <- text
   pure (mk x c v) where
-    mk x (Left _) v = LabelConstraintEq (x, v)
+    mk x (Left _) v  = LabelConstraintEq (x, v)
     mk x (Right _) v = LabelConstraintNotEq (x, v)
 
 labelConstraints :: Parser (Set LabelConstraint)
