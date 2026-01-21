@@ -12,7 +12,8 @@ import           Cardano.Timeseries.Util              (maybeToEither,
 import           Control.Monad.Except                 (liftEither, throwError)
 import           Data.Word                            (Word64)
 
-import           Cardano.Timeseries.Query.Types       (Error, QueryM)
+import           Cardano.Timeseries.Interp.Types      (Error, QueryM)
+import qualified Data.Text                            as Text
 
 expectInstantVector :: Value -> QueryM (InstantVector Value)
 expectInstantVector (Value.InstantVector v) = pure v
@@ -71,6 +72,6 @@ expectFunction (Value.Function f) = pure f
 expectFunction e = throwError "Unexpected expression type: expected a function"
 
 expectWord64 :: Double -> QueryM Word64
-expectWord64 x = if isWhole x then pure (truncate x) else throwError ("Expected a whole number, got: " <> show x) where
+expectWord64 x = if isWhole x then pure (truncate x) else throwError ("Expected a whole number, got: " <> Text.show x) where
   isWhole :: Double -> Bool
   isWhole x = snd (properFraction x :: (Integer, Double)) == 0

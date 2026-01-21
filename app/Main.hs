@@ -16,9 +16,9 @@ import qualified Cardano.Timeseries.Surface.Expr.Parser as Surface.Parser
 import           Cardano.Logging.Resources              (ResourceStats,
                                                          Resources (..),
                                                          readResourceStats)
-import           Cardano.Timeseries.Query.Types         (Error)
+import           Cardano.Timeseries.Elab                (elab, initialSt)
+import           Cardano.Timeseries.Interp.Types        (Error)
 import           Cardano.Timeseries.Store.Tree          (fromFlat)
-import           Cardano.Timeseries.Surface.Elab        (elab, initialSt)
 import           Control.DeepSeq                        (force)
 import           Control.Monad                          (forever)
 import           Control.Monad.Except                   (runExceptT)
@@ -26,12 +26,12 @@ import           Control.Monad.State.Strict             (evalState, runState)
 import           Data.Foldable                          (for_, traverse_)
 import qualified Data.Map                               as Map
 import           Data.Text                              (pack, unpack)
+import qualified Data.Text.IO                           as Text
 import           GHC.List                               (foldl')
 import           System.Exit                            (die)
 import           System.IO                              (hFlush, stdout)
 import           Text.Megaparsec                        hiding (count)
 import           Text.Megaparsec.Char                   (space)
-import qualified Data.Text.IO as Text
 
 snapshotsFile :: String
 snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
@@ -40,7 +40,7 @@ printStore :: Flat Double -> IO ()
 printStore = traverse_ print
 
 printQueryResult :: Either Error Value -> IO ()
-printQueryResult (Left err) = putStrLn ("Error: " <> err)
+printQueryResult (Left err) = Text.putStrLn ("Error: " <> err)
 printQueryResult (Right ok) = print ok
 
 printStats :: ResourceStats -> IO ()
@@ -59,8 +59,8 @@ interactive store = forever $ do
  putStrLn "----------"
  putStr "> "
  hFlush stdout
- queryString <- getLine
- case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
+ queryString <- Text.getLine
+ case parse (Surface.Parser.expr <* space <* eof) "input" queryString of
    Left err -> putStrLn (errorBundlePretty err)
    Right surfaceQuery -> do
      -- putStrLn ("Surface expr: " <> show surfaceQuery)
@@ -82,16 +82,16 @@ main1 = do
 
 main2 :: IO ()
 main2 = do
- queryString <- getLine
- case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
+ queryString <- Text.getLine
+ case parse (Surface.Parser.expr <* space <* eof) "input" queryString of
    Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
      putStrLn ("Expr: " <> show query)
 
 main :: IO ()
 main = do
- queryString <- getLine
- case parse (Surface.Parser.expr <* space <* eof) "input" (pack queryString) of
+ queryString <- Text.getLine
+ case parse (Surface.Parser.expr <* space <* eof) "input" queryString of
    Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
      putStrLn ("Expr: " <> show query)

@@ -1,17 +1,18 @@
 {- HLINT ignore "Use newtype instead of data" -}
-module Cardano.Timeseries.Surface.Unify(UnificationProblem(..), St(..), UnifyM, unify, solve) where
-import           Cardano.Timeseries.Query.Types    (HoleIdentifier)
-import           Cardano.Timeseries.Typing         (Binding (..), Context,
-                                                    Def (..), Defs, Ty (..),
-                                                    instantiateTy, prettyTy, TyPrec (Loose))
+module Cardano.Timeseries.Unify(UnificationProblem(..), St(..), UnifyM, unify, solve) where
+import           Cardano.Timeseries.Query.Expr   (HoleIdentifier)
 import           Cardano.Timeseries.Resolve
-import           Control.Monad                     (join)
-import           Control.Monad.Except              (ExceptT, throwError)
-import           Control.Monad.State.Strict        (State, get, lift, state)
-import qualified Data.Map.Strict                   as Map
-import           Data.Text                         (Text, pack)
-import Cardano.Timeseries.Surface.Expr (Loc)
-import Text.Megaparsec (sourcePosPretty)
+import           Cardano.Timeseries.Surface.Expr (Loc)
+import           Cardano.Timeseries.Typing       (Binding (..), Context,
+                                                  Def (..), Defs, Ty (..),
+                                                  TyPrec (Loose), instantiateTy,
+                                                  prettyTy)
+import           Control.Monad                   (join)
+import           Control.Monad.Except            (ExceptT, throwError)
+import           Control.Monad.State.Strict      (State, get, lift, state)
+import qualified Data.Map.Strict                 as Map
+import           Data.Text                       (Text, pack)
+import           Text.Megaparsec                 (sourcePosPretty)
 
 -- | A = B type
 --   An equation between two query types containing holes.

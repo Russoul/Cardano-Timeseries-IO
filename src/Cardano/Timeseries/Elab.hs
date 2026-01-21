@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module Cardano.Timeseries.Surface.Elab(initialSt, St(..), ElabM, elab) where
+module Cardano.Timeseries.Elab(initialSt, St(..), ElabM, elab) where
 import           Cardano.Timeseries.Data.Pair                (Pair (..))
 import           Cardano.Timeseries.Data.SnocList
 import           Cardano.Timeseries.Domain.Identifier        (Identifier)
@@ -9,15 +9,11 @@ import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmetic
 import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation,
                                                               prettyBinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
-import           Cardano.Timeseries.Query.Expr               (LabelConstraint (..))
+import           Cardano.Timeseries.Query.Expr               (HoleIdentifier, LabelConstraint (..))
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
-import           Cardano.Timeseries.Query.Types              (HoleIdentifier)
 import           Cardano.Timeseries.Resolve
 import           Cardano.Timeseries.Surface.Expr             (Loc, getLoc)
 import qualified Cardano.Timeseries.Surface.Expr             as Surface
-import           Cardano.Timeseries.Surface.Unify            (UnificationProblem (..),
-                                                              UnifyM)
-import qualified Cardano.Timeseries.Surface.Unify            as Unify
 import           Cardano.Timeseries.Typing                   (Binding (..),
                                                               Context, Def (..),
                                                               Defs,
@@ -28,6 +24,9 @@ import           Cardano.Timeseries.Typing                   (Binding (..),
                                                               prettyTy)
 import qualified Cardano.Timeseries.Typing                   as Ty
 import qualified Cardano.Timeseries.Typing                   as Types
+import           Cardano.Timeseries.Unify                    (UnificationProblem (..),
+                                                              UnifyM)
+import qualified Cardano.Timeseries.Unify                    as Unify
 import           Control.Monad                               (when)
 import           Control.Monad.Except                        (ExceptT,
                                                               liftEither,

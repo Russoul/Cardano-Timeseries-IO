@@ -14,8 +14,8 @@ module Cardano.Timeseries.Typing(
   ty) where
 import           Cardano.Timeseries.Data.SnocList
 import           Cardano.Timeseries.Domain.Identifier (Identifier (..))
+import           Cardano.Timeseries.Query.Expr        (HoleIdentifier)
 import qualified Cardano.Timeseries.Query.Expr        as Semantic
-import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
 import           Data.Text                            (Text)

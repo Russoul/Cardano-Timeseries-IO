@@ -1,11 +1,12 @@
-module Cardano.Timeseries.Query.Expr(LabelConstraint(..), Expr(..)) where
+module Cardano.Timeseries.Query.Expr(HoleIdentifier, LabelConstraint(..), Expr(..)) where
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
 import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
-import           Cardano.Timeseries.Query.Types       (HoleIdentifier)
 import           Data.List.NonEmpty                   (NonEmpty)
 import           Data.Set                             (Set)
 import           Data.Text                            (Text)
 import Data.Word (Word64)
+
+type HoleIdentifier = Int
 
 data LabelConstraint = LabelConstraintEq (Labelled Text) | LabelConstraintNotEq (Labelled Text)
   deriving (Show, Eq, Ord)

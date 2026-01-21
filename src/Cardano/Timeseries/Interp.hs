@@ -57,13 +57,14 @@ import           GHC.Base                                    (NonEmpty ((:|)))
 
 import           Cardano.Timeseries.Interp.Expect
 import           Cardano.Timeseries.Interp.Statistics
+import           Cardano.Timeseries.Interp.Types             (Error, QueryM)
 import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmeticOp
-import           Cardano.Timeseries.Query.Types              (Error, QueryM)
 import           Data.Foldable                               (for_, traverse_)
 import           Data.Function                               (on)
 import           Data.List                                   (find, groupBy)
 import qualified Data.List                                   as List
 import           Data.Text                                   (Text)
+import qualified Data.Text                                   as Text
 import           Statistics.Function                         (minMax)
 import           Statistics.Quantile                         (cadpw, quantile)
 import           Statistics.Sample                           (mean)
@@ -71,7 +72,7 @@ import           Statistics.Sample                           (mean)
 interpJoin :: (a -> b -> c) -> InstantVector a -> InstantVector b -> Either Error (InstantVector c)
 interpJoin _ [] _ = Right []
 interpJoin f (inst@(Domain.Instant ls t v) : xs) other = do
-  Domain.Instant _ _ v' <- maybeToEither ("No matching label: " <> show ls) $ find (share inst) other
+  Domain.Instant _ _ v' <- maybeToEither ("No matching label: " <> Text.show ls) $ find (share inst) other
   rest <- interpJoin f xs other
   Right (Domain.Instant ls t (f v v') : rest)
 
@@ -171,7 +172,7 @@ interp store env (Expr.Variable x) _ =
         User x | member x (metrics store) ->
           pure $ Value.Function (interpVariable store x)
         _ ->
-          throwError ("Undefined variable: " <> show x)
+          throwError ("Undefined variable: " <> Text.show x)
 interp _ env Now now = pure (Timestamp (fromIntegral now))
 interp _ env Epoch now = pure (Timestamp 0)
 interp store env (Lambda x body) now = pure $ Value.Function $ \v ->
@@ -335,4 +336,4 @@ interp store env (Expr.AddDuration a b) now = do
   pure (Value.Duration (a + b))
 interp store env (mbBinaryRelationInstantVector -> Just (v, rel, k)) now =
   interpFilterBinaryRelation store env v rel k now
-interp _ _ expr _ = throwError $ "Can't interpret expression: " <> show expr
+interp _ _ expr _ = throwError $ "Can't interpret expression: " <> Text.show expr

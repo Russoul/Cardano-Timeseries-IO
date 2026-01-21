@@ -3,7 +3,7 @@ module Cardano.Timeseries.Interp.Value(Value(..), FunctionValue, fromBool) where
 import           Cardano.Timeseries.Domain.Instant
 import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector)
 
-import           Cardano.Timeseries.Query.Types       (QueryM)
+import           Cardano.Timeseries.Interp.Types      (QueryM)
 import           Control.DeepSeq                      (NFData)
 import           Control.Monad.Except                 (ExceptT)
 import           Control.Monad.State.Strict           (State)

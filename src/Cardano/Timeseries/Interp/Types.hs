@@ -1,7 +1,7 @@
-module Cardano.Timeseries.Query.Types(Error, QueryM, HoleIdentifier) where
+module Cardano.Timeseries.Interp.Types where
 import           Control.Monad.Except       (ExceptT)
 import           Control.Monad.State.Strict (State)
+import Data.Text (Text)
 
-type HoleIdentifier = Int
-type Error = String
+type Error = Text
 type QueryM a = ExceptT Error (State Int) a
