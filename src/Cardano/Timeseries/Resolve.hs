@@ -4,7 +4,6 @@ import qualified Cardano.Timeseries.Query.Expr as Expr
 import           Cardano.Timeseries.Typing
 import qualified Cardano.Timeseries.Typing     as Ty
 import qualified Data.Map.Strict               as Map
-import           Data.String.Interpolate       (i)
 
 
 -- | Computes the head-normal form of `Ty` w.r.t. hole resolution (i.e. unfolds holes recursively up to the head expression).
@@ -67,6 +66,7 @@ resolveExpr' defs (Not t) = Not (resolveExpr' defs t)
 resolveExpr' defs (And a b) = And (resolveExpr' defs a) (resolveExpr' defs b)
 resolveExpr' defs (Or a b) = Or (resolveExpr' defs a) (resolveExpr' defs b)
 resolveExpr' defs (EqBool a b) = EqBool (resolveExpr' defs a) (resolveExpr' defs b)
+resolveExpr' defs (NotEqBool a b) = NotEqBool (resolveExpr' defs a) (resolveExpr' defs b)
 resolveExpr' defs (Application f e) = Application (resolveExpr' defs f) (resolveExpr' defs e)
 resolveExpr' defs (Lambda x f) = Lambda x (resolveExpr' defs f)
 resolveExpr' defs (Let x rhs e) = Let x (resolveExpr' defs rhs) (resolveExpr' defs e)

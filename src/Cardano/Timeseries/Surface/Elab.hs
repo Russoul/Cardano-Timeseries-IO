@@ -1,4 +1,3 @@
-{-# LANGUAGE QuasiQuotes  #-}
 {-# LANGUAGE ViewPatterns #-}
 module Cardano.Timeseries.Surface.Elab(initialSt, St(..), ElabM, elab) where
 import           Cardano.Timeseries.Data.Pair                (Pair (..))
@@ -41,7 +40,6 @@ import           Data.List.NonEmpty                          (NonEmpty (..))
 import qualified Data.List.NonEmpty                          as NonEmpty
 import qualified Data.Map.Strict                             as Map
 import qualified Data.Set                                    as Set
-import           Data.String.Interpolate                     (i)
 import           Data.Text                                   (Text, pack)
 import qualified Data.Text                                   as Text
 import           Debug.Trace                                 (traceM)
@@ -57,8 +55,11 @@ data GeneralElabProblem = GeneralElabProblem {
 
 prettyGeneralElabProblem :: GeneralElabProblem -> Text
 prettyGeneralElabProblem (GeneralElabProblem gam sur hole holeTy) =
-  [i|#{prettyContext gam} ⊦ #{prettyTy Loose holeTy}
-      @ #{sourcePosPretty (getLoc sur)}|]
+  prettyContext gam
+    <> " ⊦ "
+    <> prettyTy Loose holeTy
+    <> "\n  @ "
+    <> Text.pack (sourcePosPretty (getLoc sur))
 
 evalGeneralElabProblem :: Defs -> GeneralElabProblem -> GeneralElabProblem
 evalGeneralElabProblem defs (GeneralElabProblem gam tm hole holeTy) =
@@ -79,8 +80,17 @@ data BinaryRelationElabProblem = BinaryRelationElabProblem {
 
 prettyBinaryRelationElabProblem :: BinaryRelationElabProblem -> Text
 prettyBinaryRelationElabProblem (BinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy) =
-  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyBinaryRelation rel} #{prettyTy Loose rhsTy} : #{prettyTy Loose holeTy}
-      @ #{sourcePosPretty loc}|]
+  prettyContext gam
+    <> " ⊦ "
+    <> prettyTy Loose lhsTy
+    <> " "
+    <> prettyBinaryRelation rel
+    <> " "
+    <> prettyTy Loose rhsTy
+    <> " : "
+    <> prettyTy Loose holeTy
+    <> "\n  @ "
+    <> Text.pack (sourcePosPretty loc)
 
 evalBinaryRelationElabProblem :: Defs -> BinaryRelationElabProblem -> BinaryRelationElabProblem
 evalBinaryRelationElabProblem defs (BinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy) =
@@ -110,8 +120,17 @@ data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
 
 prettyBinaryArithmeticOpElabProblem :: BinaryArithmeticOpElabProblem -> Text
 prettyBinaryArithmeticOpElabProblem (BinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy) =
-  [i|#{prettyContext gam} ⊦ #{prettyTy Loose lhsTy} #{prettyOp op} #{prettyTy Loose rhsTy} : #{prettyTy Loose holeTy}
-      @ #{sourcePosPretty loc}|]
+  prettyContext gam
+    <> " ⊦ "
+    <> prettyTy Loose lhsTy
+    <> " "
+    <> prettyOp op
+    <> " "
+    <> prettyTy Loose rhsTy
+    <> " : "
+    <> prettyTy Loose holeTy
+    <> "\n  @ "
+    <> Text.pack (sourcePosPretty loc)
 
 evalBinaryArithmethicOpElabProblem :: Defs -> BinaryArithmeticOpElabProblem -> BinaryArithmeticOpElabProblem
 evalBinaryArithmethicOpElabProblem defs (BinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy) =
@@ -137,8 +156,11 @@ data ToScalarElabProblem = ToScalarElabProblem {
 
 prettyToScalarElabProblem :: ToScalarElabProblem -> Text
 prettyToScalarElabProblem (ToScalarElabProblem gam loc expr ty hole) =
-  [i|#{prettyContext gam} ⊦ to_scalar #{prettyTy Loose ty}
-      @ #{sourcePosPretty loc}|]
+  prettyContext gam
+    <> " ⊦ to_scalar "
+    <> prettyTy Loose ty
+    <> "\n  @ "
+    <> Text.pack (sourcePosPretty loc)
 
 evalToScalarElabProblem :: Defs -> ToScalarElabProblem -> ToScalarElabProblem
 evalToScalarElabProblem defs (ToScalarElabProblem gam loc expr exprTy hole) =
@@ -262,11 +284,16 @@ solveToScalarElabProblem gam loc expr Timestamp hole = do
   modify $ updateDefs $ instantiateExpr hole (Semantic.TimestampToScalar expr)
   pure $ Just ([], [])
 solveToScalarElabProblem gam loc expr (Hole _) hole = pure Nothing
-solveToScalarElabProblem gam loc expr badType hole = throwError
-  [i| to_scalar can't be applied to an expression of type #{prettyTy Loose badType} @ #{sourcePosPretty loc} |]
+solveToScalarElabProblem gam loc expr badType hole = throwError $
+  "to_scalar can't be applied to an expression of type "
+    <> prettyTy Loose badType
+    <> "\n  @ "
+    <> Text.pack (sourcePosPretty loc)
 
 -- | Σ Γ ⊦ InstantVector Scalar `rel` Scalar ~> ? : InstantVector Scalar
 -- | Σ Γ ⊦ Scalar `rel` Scalar ~> ? : Bool
+-- | Σ Γ ⊦ Bool == Bool ~> ? : Bool
+-- | Σ Γ ⊦ Bool != Bool ~> ? : Bool
 solveCanonicalBinaryRelationElabProblem :: Context
                                         -> Loc
                                         -> Semantic.Expr
@@ -286,6 +313,16 @@ solveCanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole B
   modify $ updateDefs $
     instantiateExpr hole
       (BinaryRelation.embedScalar rel lhs rhs)
+  pure $ Just ([], [])
+solveCanonicalBinaryRelationElabProblem gam loc lhs Bool BinaryRelation.Eq rhs Bool hole Bool = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.EqBool lhs rhs)
+  pure $ Just ([], [])
+solveCanonicalBinaryRelationElabProblem gam loc lhs Bool BinaryRelation.NotEq rhs Bool hole Bool = do
+  modify $ updateDefs $
+    instantiateExpr hole
+      (Semantic.NotEqBool lhs rhs)
   pure $ Just ([], [])
 solveCanonicalBinaryRelationElabProblem _ _ _ _ _ _ _ _ _ = pure Nothing
 
@@ -315,11 +352,15 @@ solveNoncanonicalBinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hol
 solveNoncanonicalBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole Bool = do
   pure $ Just ([UnificationProblem loc lhsTy Scalar, UnificationProblem loc rhsTy Scalar],
         [BinaryRelation $ BinaryRelationElabProblem gam loc lhs Scalar rel rhs Scalar hole Bool])
+solveNoncanonicalBinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole typ |
+  (lhsTy == Bool || rhsTy == Bool) && (rel == BinaryRelation.Eq || rel == BinaryRelation.NotEq) = do
+  pure $ Just ([UnificationProblem loc lhsTy Bool, UnificationProblem loc rhsTy Bool, UnificationProblem loc typ Bool],
+    [BinaryRelation $ BinaryRelationElabProblem gam loc lhs Bool rel rhs Bool hole Bool])
 solveNoncanonicalBinaryRelationElabProblem gam loc lhs lshTy rel rhs rhsTy hole holeTy = pure Nothing
 
 -- | Σ Γ ⊦ (a : A) `rel` (b : B) ~> ?x : C
 --   Assumes that all given `Ty` are normal w.r.t. hole substitution.
--- FIXME: Incomplete
+-- TODO: Check completeness
 solveBinaryRelationElabProblem :: Context
                                -> Loc
                                -> Semantic.Expr
@@ -404,10 +445,6 @@ solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArith
   pure $ Just ([UnificationProblem loc rhsTy Duration, UnificationProblem loc typ Timestamp],
     [BinaryArithmeticOp $
       BinaryArithmeticOpElabProblem gam loc lhs Timestamp BinaryArithmeticOp.Sub rhs Duration hole Timestamp])
-solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy@(InstantVector _) op rhs
-    rhsTy@(InstantVector _) hole Scalar =
-  throwError
-    [i| Incompatibility: (_ : #{prettyTy Loose lhsTy}) #{prettyOp op} (_ : #{prettyTy Loose rhsTy}) |]
 solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs Scalar op rhs (InstantVector Scalar) hole typ = do
   pure (Just ([UnificationProblem loc typ (InstantVector Scalar)], [BinaryArithmeticOp $
     BinaryArithmeticOpElabProblem gam loc rhs (InstantVector Scalar) op lhs Scalar hole (InstantVector Scalar)]))
@@ -439,7 +476,7 @@ solveNoncanonicalBinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy ho
 
 -- | Σ Γ ⊦ (a : A) `op` (b : B) ~> ?x : C
 --   Assumes that all given `Ty` are normal w.r.t. hole substitution.
--- FIXME: Incomplete
+-- TODO: Check completeness
 solveBinaryArithmeticOpElabProblem ::
      Context
   -> Loc
@@ -815,7 +852,8 @@ solveGeneralElabProblem gam (Surface.ToScalar l t) h hty = do
         ,
          ToScalar $ ToScalarElabProblem gam l (Semantic.Hole th) (Hole tTy) h
         ])
-solveGeneralElabProblem gam s x typ = throwError [i| Do not know how to elaborate: #{show s} |]
+solveGeneralElabProblem gam s x typ = throwError $
+  "Do not know how to elaborate: " <> Text.show s
 
 solveElabProblem :: ElabProblem -> ElabM (Maybe ([UnificationProblem], [ElabProblem]))
 solveElabProblem (General (GeneralElabProblem gam s h typ)) = do

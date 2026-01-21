@@ -307,6 +307,10 @@ interp store env (Expr.EqBool a b) now = do
   va <- interp store env a now >>= expectBoolean
   vb <- interp store env b now >>= expectBoolean
   pure (fromBool (va == vb))
+interp store env (Expr.NotEqBool a b) now = do
+  va <- interp store env a now >>= expectBoolean
+  vb <- interp store env b now >>= expectBoolean
+  pure (fromBool (va /= vb))
 interp store env (mbBinaryRelationScalar -> Just (a, rel, b)) now = do
   va <- interp store env a now >>= expectScalar
   vb <- interp store env b now >>= expectScalar

@@ -38,7 +38,7 @@ data Expr = Number Double
           | Or Expr Expr
           | Not Expr
           | EqBool Expr Expr
-          -- TODO: NotEqBool
+          | NotEqBool Expr Expr
 
           | Milliseconds Word64
           | Seconds Word64

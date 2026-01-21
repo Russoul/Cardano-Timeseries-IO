@@ -32,6 +32,8 @@ t, f, e, a, b ::= x
                 | snd t
                 | eq_scalar t t
                 | not_eq_scalar t t
+                | eq_bool t t
+                | not_eq_bool t t
                 | lt_scalar t t
                 | lte_scalar t t
                 | gt_scalar t t
@@ -179,6 +181,18 @@ x ∈ metric-store
 Γ ⊦ b : B
 ------------------- ✔
 Γ ⊦ (a, b) : (A, B)
+
+
+Γ ⊦ a : Bool
+Γ ⊦ b : Bool
+---------------------- ✔
+Γ ⊦ eq_bool a b : Bool
+
+
+Γ ⊦ a : Bool
+Γ ⊦ b : Bool
+-------------------------- ✔
+Γ ⊦ not_eq_bool a b : Bool
 
 
 Γ ⊦ a : Scalar

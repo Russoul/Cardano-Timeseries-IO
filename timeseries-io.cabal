@@ -48,8 +48,7 @@ library
       containers,
       mtl,
       trace-resources,
-      deepseq,
-      string-interpolate
+      deepseq
 
     exposed-modules:
       Cardano.Timeseries.Data.Pair,
