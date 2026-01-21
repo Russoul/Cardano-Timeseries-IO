@@ -42,22 +42,34 @@ instance Store (Tree a) a where
   evaluate :: Tree a -> MetricIdentifier -> Timestamp -> InstantVector a
   evaluate store x t = case Map.lookup x store of
     Just inner ->
+      updateTime $ convert $ Map.foldlWithKey accumulate Map.empty $
+        range
+          rangeStartExc
+          rangeEndExc
+          inner
 
-      updateTime $ convert $ Map.foldlWithKey accumulate Map.empty (range (t - stalenessConstant) (t + 1) inner) where
+      where
+        -- | (-) wraps around, so make sure we do not in case `t` is too small
+        rangeStartExc =
+          if t > stalenessConstant
+          then t - stalenessConstant
+          else 0
 
-      updateTime :: InstantVector a -> InstantVector a
-      updateTime = fmap (\i -> Instant i.labels t i.value)
+        rangeEndExc = t + 1
 
-      accumulate :: Map SeriesIdentifier (Timestamp, a) -> Timestamp -> [Point a] -> Map SeriesIdentifier (Timestamp, a)
-      accumulate closest t = List.foldl' (accumulate t) closest where
-        accumulate :: Timestamp -> Map SeriesIdentifier (Timestamp, a) -> Point a -> Map SeriesIdentifier (Timestamp, a)
-        accumulate t closest (Point ls v) = flip (Map.insert ls) closest $
-          case Map.lookup ls closest of
-            Just (t', v') | t' > t -> (t', v')
-            _                      -> (t, v)
+        updateTime :: InstantVector a -> InstantVector a
+        updateTime = fmap (\i -> Instant i.labels t i.value)
 
-      convert :: Map SeriesIdentifier (Timestamp, a) -> InstantVector a
-      convert = map (\(ls, (t, v)) -> Instant ls t v) . Map.toList
+        accumulate :: Map SeriesIdentifier (Timestamp, a) -> Timestamp -> [Point a] -> Map SeriesIdentifier (Timestamp, a)
+        accumulate closest t = List.foldl' (accumulate t) closest where
+          accumulate :: Timestamp -> Map SeriesIdentifier (Timestamp, a) -> Point a -> Map SeriesIdentifier (Timestamp, a)
+          accumulate t closest (Point ls v) = flip (Map.insert ls) closest $
+            case Map.lookup ls closest of
+              Just (t', v') | t' > t -> (t', v')
+              _                      -> (t, v)
+
+        convert :: Map SeriesIdentifier (Timestamp, a) -> InstantVector a
+        convert = map (\(ls, (t, v)) -> Instant ls t v) . Map.toList
     Nothing -> []
 
   new :: Tree a

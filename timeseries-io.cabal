@@ -1,4 +1,4 @@
-cabal-version:      3.0
+cabal-version:      3.4
 name:               timeseries-io
 version:            0.1.0.0
 author:             Russoul
@@ -37,7 +37,6 @@ library
 
     build-depends:
       base,
-      attoparsec,
       megaparsec,
       scientific,
       vector,
@@ -82,19 +81,18 @@ library
       Cardano.Timeseries.Unify,
       Cardano.Timeseries.Util
 
-    -- if flag(profiling)
-    --   ghc-options: -fprof-auto
-
-executable timeseries-io
+executable timeseries-io-repl
     -- Import common source files and warning flags.
     import: common
     ghc-options: -rtsopts
     hs-source-dirs: app
-    main-is: Main.hs
+    main-is: REPL.hs
+
+    other-modules:
+      Common
 
     build-depends:
       base,
-      attoparsec,
       megaparsec,
       vector,
       text,
@@ -105,10 +103,33 @@ executable timeseries-io
       mtl,
       trace-resources,
       timeseries-io,
+      filepath,
       deepseq
 
-    -- if flag(profiling)
-    --   ghc-options: -fprof-auto -rtsopts "-with-rtsopts=-T"
+executable timeseries-io-file
+    -- Import common source files and warning flags.
+    import: common
+    ghc-options: -rtsopts
+    hs-source-dirs: app
+    main-is: File.hs
+
+    other-modules:
+      Common
+
+    build-depends:
+      base,
+      timeseries-io,
+      megaparsec,
+      vector,
+      text,
+      serialise,
+      statistics,
+      time,
+      containers,
+      mtl,
+      trace-resources,
+      filepath,
+      deepseq
 
 benchmark timeseries-io-bench
     import: common
@@ -118,7 +139,6 @@ benchmark timeseries-io-bench
 
     build-depends:
       base,
-      attoparsec,
       vector,
       text,
       serialise,

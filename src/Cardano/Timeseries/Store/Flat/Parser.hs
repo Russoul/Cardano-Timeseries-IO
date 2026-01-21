@@ -1,39 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Cardano.Timeseries.Store.Flat.Parser(point, points) where
+module Cardano.Timeseries.Store.Flat.Parser(double, point) where
 
 import           Cardano.Timeseries.Domain.Instant
 import           Cardano.Timeseries.Domain.Types   (Labelled, MetricIdentifier,
                                                     Timestamp)
 import           Cardano.Timeseries.Store.Flat     (Flat, Point (..))
 
-import           Data.Attoparsec.ByteString.Char8  (isDigit)
-import           Data.Attoparsec.Combinator
-import           Data.Attoparsec.Text              (Parser, decimal, endOfLine,
-                                                    satisfy, space, string)
-import           Data.Char                         (isAlpha)
+import           Data.Char                         (isAlpha, isDigit, isControl)
 import           Data.Set                          (fromList)
+import           Data.Text                         (Text)
+import qualified Data.Text                         as Text
 import           Data.Word                         (Word64)
-import Data.Text (Text)
-import qualified Data.Text as Text
 
-identifier :: Parser Text
-identifier = Text.pack <$> ((:) <$> firstChar <*> many' nextChar) where
-  firstChar :: Parser Char
-  firstChar = satisfy (\x -> isAlpha x || x == '_')
+import           Data.Void                         (Void)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char              (char, newline, space,
+                                                    space1, string)
+import           Text.Megaparsec.Char.Lexer        (decimal, scientific, signed)
+import Data.Scientific (toRealFloat)
 
-  nextChar :: Parser Char
-  nextChar = satisfy (\x -> isAlpha x || x == '_' || isDigit x)
+type Parser = Parsec Void Text
 
--- | x [x = x, ..., x = x] n n
-point :: Parser a -> Parser (Point a)
+double :: Parser Double
+double = toRealFloat <$> signed (pure ()) scientific
+
+-- | s ::= <doublequoted-string>
+-- s [s = s, ..., s = s] <decimal-nat> <floating-point>
+point :: Show a => Parser a -> Parser (Point a)
 point value = makePoint
-      <$> metric
-      <*  skipMany space
+      <$> text
+      <*  space
       <*> inBrackets labels
-      <*  skipMany space
+      <*  space
       <*> timestamp
-      <*  skipMany space
+      <*  space1
       <*> value
 
       where
@@ -42,33 +43,26 @@ point value = makePoint
   makePoint n ls t v = Point n (Instant (fromList ls) t v)
 
   comma :: Parser ()
-  comma = skipMany space <* string "," <* skipMany space
+  comma = space <* string "," <* space
 
   equals :: Parser ()
-  equals = skipMany space <* string "=" <* skipMany space
+  equals = space <* string "=" <* space
 
   inDoublequotes :: forall a. Parser a -> Parser a
   inDoublequotes f = string "\"" *> f <* string "\""
 
   inBrackets :: forall a. Parser a -> Parser a
-  inBrackets f = string "[" *> skipMany space *> f <* skipMany space <* string "]"
+  inBrackets f = string "[" *> space *> f <* space <* string "]"
 
-  metric :: Parser Text
-  metric = identifier
-
-  labelValue :: Parser Text
-  labelValue = Text.pack <$> many' (satisfy (\x -> isAlpha x || x == '_' || isDigit x))
+  text :: Parser Text
+  text = Text.pack <$> (char '\"' *> many one) <* char '\"' where
+    one :: Parser Char
+    one = satisfy (\x -> not (isControl x) && (x /= '"') && (x /= '\n') && (x /= '\r'))
 
   labels :: Parser [(Text, Text)]
-  labels = sepBy'
-    ((,) <$> (skipMany space *> identifier) <* equals <*> inDoublequotes labelValue)
+  labels = sepBy
+    ((,) <$> (space *> text) <* equals <*> text)
     comma
 
   timestamp :: Parser Word64
   timestamp = decimal
-
--- | point
--- | ...
--- | point
-points :: Parser a -> Parser (Flat a)
-points value = sepBy' (point value) endOfLine

@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {- HLINT ignore "Use print" -}
 
-module Main where
+module Common where
 
 import           Cardano.Timeseries.Import.PlainCBOR
 import           Cardano.Timeseries.Interp              (interp)
@@ -10,7 +10,7 @@ import           Cardano.Timeseries.Interp.Value        (Value)
 import           Cardano.Timeseries.Store
 import           Cardano.Timeseries.Store.Flat          (Flat,
                                                          Point (instant, name))
-import           Cardano.Timeseries.Store.Flat.Parser   (points)
+import           Cardano.Timeseries.Store.Flat.Parser   (point, double)
 import qualified Cardano.Timeseries.Surface.Expr.Parser as Surface.Parser
 
 import           Cardano.Logging.Resources              (ResourceStats,
@@ -19,7 +19,7 @@ import           Cardano.Logging.Resources              (ResourceStats,
 import           Cardano.Timeseries.Elab                (elab, initialSt)
 import           Cardano.Timeseries.Interp.Config       (Config (..))
 import           Cardano.Timeseries.Interp.Types        (Error)
-import           Cardano.Timeseries.Store.Tree          (fromFlat)
+import           Cardano.Timeseries.Store.Tree          (Tree, fromFlat)
 import           Control.DeepSeq                        (force)
 import           Control.Monad                          (forever)
 import           Control.Monad.Except                   (runExceptT)
@@ -33,9 +33,14 @@ import           Data.Word                              (Word64)
 import           GHC.List                               (foldl')
 import           System.Environment                     (getArgs)
 import           System.Exit                            (die)
-import           System.IO                              (hFlush, stdout)
+import           System.FilePath                        (takeExtension)
+import           System.IO                              (hFlush, stdout, readFile')
 import           Text.Megaparsec                        hiding (count)
-import           Text.Megaparsec.Char                   (space)
+import           Text.Megaparsec.Char                   (space, space1, newline)
+import qualified Cardano.Timeseries.Store.Flat.Parser as Flat.Parser
+import Text.Megaparsec.Char.Lexer (scientific)
+import Data.Void (Void)
+import Data.Functor (void)
 
 interpConfig :: Config
 interpConfig = Config {defaultRangeSamplingRateMillis = 15 * 1000}
@@ -74,13 +79,29 @@ interactive store = forever $ do
          Text.putStrLn (Text.show query)
          printQueryResult (evalState (runExceptT $ interp interpConfig store mempty query 0) 0)
 
+readStore :: String -> IO (Tree Double)
+readStore path | takeExtension path == ".cbor" = do
+  content <- readFileSnapshots path
+  putStrLn "Read the snapshots CBOR file!"
+  let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
+  putStrLn "Created a store from CBOR!"
+  pure store
+readStore path | takeExtension path == ".txt" = do
+  content <- Text.lines <$> Text.readFile path
+  case traverse (parse (Flat.Parser.point double <* whitespace <* eof) "input") content of
+    Left err -> die (errorBundlePretty err)
+    Right store -> pure $ fromFlat store
+readStore path = die $ "Unknown extension: " <> takeExtension path
+
+type Parser = Parsec Void Text
+
+whitespace :: Parser ()
+whitespace = skipMany (try space1 <|> void newline)
+
 repl :: IO ()
 repl = do
   [snapshotsFile] <- getArgs
-  content <- readFileSnapshots snapshotsFile
-  putStrLn "Read the snapshots file!"
-  let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
-  putStrLn "Created a store!"
+  store <- readStore snapshotsFile
   putStrLn "Metrics:"
   for_ (Map.keys store) $ \k ->
     Text.putStrLn ("  — " <> k <> "[" <> showMaybe (earliest store k) <> "ms; " <> showMaybe (latest store k) <> "ms]")
@@ -100,6 +121,3 @@ file = do
      case evalState (runExceptT (elab query)) initialSt of
        Left err   -> die (unpack err)
        Right expr -> putStrLn (show expr)
-
-main :: IO ()
-main = repl

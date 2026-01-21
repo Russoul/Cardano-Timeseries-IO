@@ -653,7 +653,7 @@ solveGeneralElabProblem gam (Surface.QuantileOverTime l k r) x typ = do
   let e2 = General $ GeneralElabProblem gam k kh Scalar
   modify $ updateDefs $
     instantiateExpr x $ Semantic.QuantileOverTime (Semantic.Hole kh) (Semantic.Hole rh)
-  pure ([u], [e1])
+  pure ([u], [e1, e2])
 solveGeneralElabProblem gam (Surface.QuantileBy loc ls k v) x typ = do
   let u = UnificationProblem loc typ (InstantVector Scalar)
   vh <- freshExprHole (InstantVector Scalar)

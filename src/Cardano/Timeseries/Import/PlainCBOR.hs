@@ -58,9 +58,3 @@ snapshotToFlatStore (Snapshot l t s) = Map.foldlWithKey' (\acc k v -> scrapeData
 
 snapshotsToFlatStore :: [Snapshot] -> Flat Double
 snapshotsToFlatStore = (>>= snapshotToFlatStore)
-
--- can be used with Data.List.sortBy
-snapshotOrd :: Snapshot -> Snapshot -> Ordering
-snapshotOrd a b =
-     singletonLabel a `compare` singletonLabel b
-  <> timeStamp a `compare` timeStamp b
