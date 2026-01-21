@@ -55,7 +55,7 @@ import qualified Data.Set                                    as Set
 import           Data.Word                                   (Word64)
 import           GHC.Base                                    (NonEmpty ((:|)))
 
-import           Cardano.Timeseries.Interp.Config            (Config)
+import           Cardano.Timeseries.Interp.Config            (Config(..))
 import           Cardano.Timeseries.Interp.Expect
 import           Cardano.Timeseries.Interp.Statistics
 import           Cardano.Timeseries.Interp.Types             (Error, QueryM)
@@ -246,8 +246,7 @@ interp cfg store env (Range s a b r) now = do
   a <- interp cfg store env a now >>= expectTimestamp
   b <- interp cfg store env b now >>= expectTimestamp
   r <- traverse (\r -> interp cfg store env r now >>= expectDuration) r
-                                           -- TODO:        vvvvvvvvv make configurable
-  RangeVector <$> interpRange s (Interval a b) (fromMaybe (15 * 1000) r)
+  RangeVector <$> interpRange s (Interval a b) (fromMaybe cfg.defaultRangeSamplingRateMillis r)
 interp cfg store env (Rewind t d) now = do
   t <- interp cfg store env t now >>= expectTimestamp
   d <- interp cfg store env d now >>= expectDuration

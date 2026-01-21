@@ -41,8 +41,8 @@ instance Show Value where
   show (RangeVector x)   = unpack (prettyTimeseriesVector x)
   show (InstantVector x) = unpack (prettyInstantVector x)
   show (Pair x y)        = "(" <> show x <> ", " <> show y <> ")"
-  show Truth             = "True"
-  show Falsity           = "False"
+  show Truth             = "true"
+  show Falsity           = "false"
   show (Duration d)      = show d <> "ms"
   show (Timestamp t)     = show t
   show (Function _)      = "<function>"

@@ -86,7 +86,7 @@ repl = do
     Text.putStrLn ("  — " <> k <> "[" <> showMaybe (earliest store k) <> "ms; " <> showMaybe (latest store k) <> "ms]")
   interactive store where
    showMaybe :: Show a => Maybe a -> Text
-   showMaybe Nothing  = "NA"
+   showMaybe Nothing  = "N/A"
    showMaybe (Just x) = Text.show x
 
 file :: IO ()
