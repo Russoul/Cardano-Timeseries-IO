@@ -161,6 +161,8 @@ interpFilterBinaryRelation store env v rel k now = do
     )
     now
 
+-- | Given a metric store, an assignment of values to local variables, a query expression and a timestamp "now",
+--    interpret the `Expr` into a `Value`.
 interp :: Store s Double => s -> Map Identifier Value -> Expr -> Timestamp -> QueryM Value
 interp _ env (Expr.Number x) _ = do
   pure (Value.Scalar x)

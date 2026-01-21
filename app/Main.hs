@@ -70,8 +70,8 @@ interactive store = forever $ do
          -- putStrLn (show expr)
          printQueryResult (evalState (runExceptT $ interp store mempty query 0) 0)
 
-main1 :: IO ()
-main1 = do
+repl :: IO ()
+repl = do
   content <- readFileSnapshots snapshotsFile
   putStrLn "Read the snapshots file!"
   let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
@@ -80,17 +80,9 @@ main1 = do
   for_ (Map.keys store) (\k -> Text.putStrLn ("  — " <> k))
   interactive store
 
-main2 :: IO ()
-main2 = do
- queryString <- Text.getLine
- case parse (Surface.Parser.expr <* space <* eof) "input" queryString of
-   Left err -> putStrLn (errorBundlePretty err)
-   Right query -> do
-     putStrLn ("Expr: " <> show query)
-
-main :: IO ()
-main = do
- queryString <- Text.getLine
+file :: IO ()
+file = do
+ queryString <- Text.getContents
  case parse (Surface.Parser.expr <* space <* eof) "input" queryString of
    Left err -> putStrLn (errorBundlePretty err)
    Right query -> do
@@ -100,3 +92,5 @@ main = do
        Left err   -> die (unpack err)
        Right expr -> putStrLn (show expr)
 
+main :: IO ()
+main = file

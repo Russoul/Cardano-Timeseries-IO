@@ -898,6 +898,7 @@ solve problems =
       throwError $ "Can't solve elaboration problems:\n" <>
         Text.intercalate "\n" toShow
 
+-- | Given a surface query `Surface.Expr` elaborate it into a regular "semantic" query `Semantic.Expr`.
 elab :: Surface.Expr -> ElabM Semantic.Expr
 elab expr = do
   typ <- freshTyHole
