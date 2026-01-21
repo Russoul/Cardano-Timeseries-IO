@@ -61,6 +61,7 @@ library
       Cardano.Timeseries.Domain.Types,
       Cardano.Timeseries.Import.PlainCBOR,
       Cardano.Timeseries.Interp,
+      Cardano.Timeseries.Interp.Config,
       Cardano.Timeseries.Interp.Expect,
       Cardano.Timeseries.Interp.Statistics,
       Cardano.Timeseries.Interp.Types,

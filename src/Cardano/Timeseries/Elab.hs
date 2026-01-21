@@ -1,4 +1,6 @@
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE ViewPatterns          #-}
 module Cardano.Timeseries.Elab(initialSt, St(..), ElabM, elab) where
 import           Cardano.Timeseries.Data.Pair                (Pair (..))
 import           Cardano.Timeseries.Data.SnocList
@@ -9,7 +11,8 @@ import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmetic
 import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation,
                                                               prettyBinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
-import           Cardano.Timeseries.Query.Expr               (HoleIdentifier, LabelConstraint (..))
+import           Cardano.Timeseries.Query.Expr               (HoleIdentifier,
+                                                              LabelConstraint (..))
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
 import           Cardano.Timeseries.Resolve
 import           Cardano.Timeseries.Surface.Expr             (Loc, getLoc)
@@ -46,10 +49,10 @@ import           Text.Megaparsec                             (sourcePosPretty)
 
 -- | Γ ⊦ s ~> ?x : A
 data GeneralElabProblem = GeneralElabProblem {
-  gpgamma   :: Context,
-  gpsurface :: Surface.Expr,
-  gphole    :: HoleIdentifier,
-  gpholeTy  :: Ty
+  gamma   :: Context,
+  surface :: Surface.Expr,
+  hole    :: HoleIdentifier,
+  holeTy  :: Ty
 } deriving (Show)
 
 prettyGeneralElabProblem :: GeneralElabProblem -> Text
@@ -66,15 +69,15 @@ evalGeneralElabProblem defs (GeneralElabProblem gam tm hole holeTy) =
 
 -- | Γ ⊦ ((t : T) R (t : T)) ~> ? : T
 data BinaryRelationElabProblem = BinaryRelationElabProblem {
-  brpgamma  :: Context,
-  brploc    :: Loc,
-  brplhs    :: Semantic.Expr,
-  brplhsTy  :: Ty,
-  brprel    :: BinaryRelation.BinaryRelation,
-  brprhs    :: Semantic.Expr,
-  brprhsTy  :: Ty,
-  brphole   :: HoleIdentifier,
-  brpholeTy :: Ty
+  gamma  :: Context,
+  loc    :: Loc,
+  lhs    :: Semantic.Expr,
+  lhsTy  :: Ty,
+  rel    :: BinaryRelation.BinaryRelation,
+  rhs    :: Semantic.Expr,
+  rhsTy  :: Ty,
+  hole   :: HoleIdentifier,
+  holeTy :: Ty
 } deriving (Show)
 
 prettyBinaryRelationElabProblem :: BinaryRelationElabProblem -> Text
@@ -106,15 +109,15 @@ evalBinaryRelationElabProblem defs (BinaryRelationElabProblem gam loc lhs lhsTy 
 
 -- | Γ ⊦ (t R t) ~> ? : t
 data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
-  baopgamma  :: Context,
-  baoploc    :: Loc,
-  baoplhs    :: Semantic.Expr,
-  baoplhsTy  :: Ty,
-  baopop     :: BinaryArithmeticOp.BinaryArithmeticOp,
-  baoprhs    :: Semantic.Expr,
-  baoprhsTy  :: Ty,
-  baophole   :: HoleIdentifier,
-  baopholeTy :: Ty
+  gamma  :: Context,
+  loc    :: Loc,
+  lhs    :: Semantic.Expr,
+  lhsTy  :: Ty,
+  op     :: BinaryArithmeticOp.BinaryArithmeticOp,
+  rhs    :: Semantic.Expr,
+  rhsTy  :: Ty,
+  hole   :: HoleIdentifier,
+  holeTy :: Ty
 } deriving (Show)
 
 prettyBinaryArithmeticOpElabProblem :: BinaryArithmeticOpElabProblem -> Text
@@ -146,11 +149,11 @@ evalBinaryArithmethicOpElabProblem defs (BinaryArithmeticOpElabProblem gam loc l
 
 -- | Γ ⊦ to_scalar (t : T) ~> ?
 data ToScalarElabProblem = ToScalarElabProblem {
-  tsepgamma :: Context,
-  tseploc   :: Loc,
-  tsepexpr  :: Semantic.Expr,
-  tsepty    :: Ty,
-  tsephole  :: HoleIdentifier
+  gamma :: Context,
+  loc   :: Loc,
+  expr  :: Semantic.Expr,
+  ty    :: Ty,
+  hole  :: HoleIdentifier
 } deriving (Show)
 
 prettyToScalarElabProblem :: ToScalarElabProblem -> Text
@@ -225,7 +228,7 @@ type ElabM a = ExceptT Error (State St) a
 
 freshHoleIdentifier :: ElabM HoleIdentifier
 freshHoleIdentifier = do
-  x <- nextHoleIdentifier <$> get
+  x <- (.nextHoleIdentifier) <$> get
   modify (updateNextHoleIdentifier (+ 1))
   pure x
 

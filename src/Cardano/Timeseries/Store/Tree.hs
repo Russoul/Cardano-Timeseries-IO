@@ -1,5 +1,7 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedRecordDot   #-}
+{-# LANGUAGE ViewPatterns          #-}
 module Cardano.Timeseries.Store.Tree(Point(..), Tree, fromFlat) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (..), InstantVector)
@@ -40,7 +42,11 @@ instance Store (Tree a) a where
   evaluate :: Tree a -> MetricIdentifier -> Timestamp -> InstantVector a
   evaluate store x t = case Map.lookup x store of
     Just inner ->
-      convert $ Map.foldlWithKey accumulate Map.empty (range (t - stalenessConstant) (t + 1) inner) where
+
+      updateTime $ convert $ Map.foldlWithKey accumulate Map.empty (range (t - stalenessConstant) (t + 1) inner) where
+
+      updateTime :: InstantVector a -> InstantVector a
+      updateTime = fmap (\i -> Instant i.labels t i.value)
 
       accumulate :: Map SeriesIdentifier (Timestamp, a) -> Timestamp -> [Point a] -> Map SeriesIdentifier (Timestamp, a)
       accumulate closest t = List.foldl' (accumulate t) closest where

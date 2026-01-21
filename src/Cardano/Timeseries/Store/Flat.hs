@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 module Cardano.Timeseries.Store.Flat(Flat, Point(..)) where
@@ -29,7 +31,10 @@ instance Store (Flat a) a where
   insert store metric instant = Point metric instant : store
 
   evaluate :: Flat a -> MetricIdentifier -> Timestamp -> InstantVector a
-  evaluate store targetMetric targetTime = foldl' choose [] store where
+  evaluate store targetMetric targetTime = updateTime $ foldl' choose [] store where
+
+    updateTime :: InstantVector a -> InstantVector a
+    updateTime = fmap (\i -> Instant i.labels targetTime i.value)
 
     choose :: InstantVector a -> Point a -> InstantVector a
     choose acc p = accumulate acc (toMaybe (satisfies p) p) where
@@ -37,33 +42,33 @@ instance Store (Flat a) a where
       -- | Does that point match target metric name?
       -- | Does that point lie within the staleness window?
       satisfies :: Point a -> Bool
-      satisfies x = name x == targetMetric
-                 && timestamp (instant x) + stalenessConstant >= targetTime
-                 && timestamp (instant x) <= targetTime
+      satisfies x = x.name == targetMetric
+                 && x.instant.timestamp + stalenessConstant >= targetTime
+                 && x.instant.timestamp <= targetTime
 
       accumulate :: InstantVector a -> Maybe (Point a) -> InstantVector a
       accumulate acc Nothing = acc
       accumulate acc (Just p) = accumulate acc p where
         accumulate :: InstantVector a -> Point a -> InstantVector a
-        accumulate [] p = [instant p]
-        accumulate (x : xs) p | share x (instant p) = Instant.mostRecent x (instant p) : xs
+        accumulate [] p = [p.instant]
+        accumulate (x : xs) p | share x p.instant = Instant.mostRecent x p.instant : xs
         accumulate (x : xs) p = x : accumulate xs p
 
 
   new = []
 
-  metrics store = fromList (map name store)
+  metrics store = fromList (map (.name) store)
 
   count = length
 
   earliest store ident = go Nothing store where
     go acc [] = acc
-    go acc (x : xs) | ident == name x = go (Just $ combine acc (timestamp $ instant x)) xs where
+    go acc (x : xs) | ident == x.name = go (Just $ combine acc x.instant.timestamp) xs where
       combine x y = min y (fromMaybe y x)
     go acc (x : xs) = go acc xs
 
   latest store ident = go Nothing store where
     go acc [] = acc
-    go acc (x : xs) | ident == name x = go (Just $ combine acc (timestamp $ instant x)) xs where
+    go acc (x : xs) | ident == x.name = go (Just $ combine acc x.instant.timestamp) xs where
       combine x y = max y (fromMaybe y x)
     go acc (x : xs) = go acc xs

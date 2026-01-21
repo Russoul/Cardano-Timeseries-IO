@@ -2,7 +2,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Cardano.Timeseries.Domain.Timeseries(Timeseries(..), TimeseriesVector,
-  transpose, toVector, oldest, newest, eachOldest, eachNewest, superseries) where
+  transpose, toVector, oldest, newest, eachOldest, eachNewest, superseries,
+  prettyTimeseries, prettyTimeseriesVector) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (Instant), InstantVector)
 import qualified Cardano.Timeseries.Domain.Instant as Instant
@@ -15,6 +16,8 @@ import qualified Data.Set as Set
 import           Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import           GHC.Generics (Generic)
+import Data.Text (Text)
+import qualified Data.Text as Text
 
 -- | A collection of datapoints sharing a series.
 data Timeseries a = Timeseries {
@@ -99,3 +102,12 @@ toVector = Vector.fromList . fmap snd . dat
 -- Widen the series by the given set of labels.
 superseries :: Set Label -> SeriesIdentifier -> SeriesIdentifier
 superseries ls = Set.filter (\(k, _) -> k `elem` ls)
+
+prettyTimeseries :: Show a => Timeseries a -> Text
+prettyTimeseries (Timeseries ls ps) =
+  Text.show (Set.toList ls)
+    <> "\n"
+    <> Text.intercalate "\n" (fmap (\(t, v) -> Text.show t <> " " <> Text.show v) ps)
+
+prettyTimeseriesVector :: Show a => TimeseriesVector a -> Text
+prettyTimeseriesVector = Text.intercalate "\n" . fmap prettyTimeseries

@@ -17,6 +17,7 @@ import           Cardano.Logging.Resources              (ResourceStats,
                                                          Resources (..),
                                                          readResourceStats)
 import           Cardano.Timeseries.Elab                (elab, initialSt)
+import           Cardano.Timeseries.Interp.Config       (Config (..))
 import           Cardano.Timeseries.Interp.Types        (Error)
 import           Cardano.Timeseries.Store.Tree          (fromFlat)
 import           Control.DeepSeq                        (force)
@@ -25,16 +26,19 @@ import           Control.Monad.Except                   (runExceptT)
 import           Control.Monad.State.Strict             (evalState, runState)
 import           Data.Foldable                          (for_, traverse_)
 import qualified Data.Map                               as Map
-import           Data.Text                              (pack, unpack)
+import           Data.Text                              (Text, pack, unpack)
+import qualified Data.Text                              as Text
 import qualified Data.Text.IO                           as Text
+import           Data.Word                              (Word64)
 import           GHC.List                               (foldl')
+import           System.Environment                     (getArgs)
 import           System.Exit                            (die)
 import           System.IO                              (hFlush, stdout)
 import           Text.Megaparsec                        hiding (count)
 import           Text.Megaparsec.Char                   (space)
 
-snapshotsFile :: String
-snapshotsFile = "data/preprod_2bp_max1764622920.cbor"
+interpConfig :: Config
+interpConfig = Config {defaultRangeSamplingRateMillis = 15 * 1000}
 
 printStore :: Flat Double -> IO ()
 printStore = traverse_ print
@@ -67,18 +71,23 @@ interactive store = forever $ do
      case evalState (runExceptT (elab surfaceQuery)) initialSt of
        Left err   -> Text.putStrLn err
        Right query -> do
-         -- putStrLn (show expr)
-         printQueryResult (evalState (runExceptT $ interp store mempty query 0) 0)
+         Text.putStrLn (Text.show query)
+         printQueryResult (evalState (runExceptT $ interp interpConfig store mempty query 0) 0)
 
 repl :: IO ()
 repl = do
+  [snapshotsFile] <- getArgs
   content <- readFileSnapshots snapshotsFile
   putStrLn "Read the snapshots file!"
   let store = {-# SCC "XXX" #-} force $ fromFlat $ snapshotsToFlatStore content
   putStrLn "Created a store!"
   putStrLn "Metrics:"
-  for_ (Map.keys store) (\k -> Text.putStrLn ("  — " <> k))
-  interactive store
+  for_ (Map.keys store) $ \k ->
+    Text.putStrLn ("  — " <> k <> "[" <> showMaybe (earliest store k) <> "ms; " <> showMaybe (latest store k) <> "ms]")
+  interactive store where
+   showMaybe :: Show a => Maybe a -> Text
+   showMaybe Nothing  = "NA"
+   showMaybe (Just x) = Text.show x
 
 file :: IO ()
 file = do
@@ -93,4 +102,4 @@ file = do
        Right expr -> putStrLn (show expr)
 
 main :: IO ()
-main = file
+main = repl

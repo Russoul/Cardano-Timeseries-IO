@@ -55,9 +55,11 @@ import qualified Data.Set                                    as Set
 import           Data.Word                                   (Word64)
 import           GHC.Base                                    (NonEmpty ((:|)))
 
+import           Cardano.Timeseries.Interp.Config            (Config)
 import           Cardano.Timeseries.Interp.Expect
 import           Cardano.Timeseries.Interp.Statistics
 import           Cardano.Timeseries.Interp.Types             (Error, QueryM)
+import           Cardano.Timeseries.Query.BinaryArithmeticOp (BinaryArithmeticOp)
 import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmeticOp
 import           Data.Foldable                               (for_, traverse_)
 import           Data.Function                               (on)
@@ -136,21 +138,48 @@ interpIncrease v = liftEither $ do
     let v = max.value - min.value in
     Instant min.labels max.timestamp v
 
+-- | (v `op` s) ≡ map (\x -> x `op` s) v
+-- | where v : InstantVector Scalar
+-- |       s : Scalar
+interpBinaryArithmeticOp :: Store s Double
+                         => Config
+                         -> s
+                         -> Map Identifier Value
+                         -> Expr
+                         -> BinaryArithmeticOp
+                         -> Expr
+                         -> Timestamp
+                         -> QueryM Value
+interpBinaryArithmeticOp cfg store env v op k now = do
+  nextVarIdx <- lift get
+  lift (put (1 + nextVarIdx))
+  interp cfg store env
+    (Map
+      (
+        Lambda
+          (Machine nextVarIdx)
+          (BinaryArithmeticOp.embedScalar op (Variable (Machine nextVarIdx)) k)
+      )
+      v
+    )
+    now
+
 -- | (v `R` s) ≡ filter (\x -> x `R` s) v
 -- | where v : InstantVector Scalar
 -- |       s : Scalar
 interpFilterBinaryRelation :: Store s Double
-                           => s
+                           => Config
+                           -> s
                            -> Map Identifier Value
                            -> Expr
                            -> BinaryRelation
                            -> Expr
                            -> Timestamp
                            -> QueryM Value
-interpFilterBinaryRelation store env v rel k now = do
+interpFilterBinaryRelation cfg store env v rel k now = do
   nextVarIdx <- lift get
   lift (put (1 + nextVarIdx))
-  interp store env
+  interp cfg store env
     (Filter
       (
         Lambda
@@ -163,10 +192,10 @@ interpFilterBinaryRelation store env v rel k now = do
 
 -- | Given a metric store, an assignment of values to local variables, a query expression and a timestamp "now",
 --    interpret the `Expr` into a `Value`.
-interp :: Store s Double => s -> Map Identifier Value -> Expr -> Timestamp -> QueryM Value
-interp _ env (Expr.Number x) _ = do
+interp :: Store s Double => Config -> s -> Map Identifier Value -> Expr -> Timestamp -> QueryM Value
+interp cfg _ env (Expr.Number x) _ = do
   pure (Value.Scalar x)
-interp store env (Expr.Variable x) _ =
+interp cfg store env (Expr.Variable x) _ =
   case Map.lookup x env of
     Just v -> pure v
     Nothing ->
@@ -175,19 +204,19 @@ interp store env (Expr.Variable x) _ =
           pure $ Value.Function (interpVariable store x)
         _ ->
           throwError ("Undefined variable: " <> Text.show x)
-interp _ env Now now = pure (Timestamp (fromIntegral now))
-interp _ env Epoch now = pure (Timestamp 0)
-interp store env (Lambda x body) now = pure $ Value.Function $ \v ->
-  interp store (Map.insert x v env) body now
-interp store env (Let x rhs body) now = do
-  v <- interp store env rhs now
-  interp store (Map.insert x v env) body now
-interp store env (FastForward t d) now = do
-  t <- interp store env t now >>= expectTimestamp
-  d <- interp store env d now >>= expectDuration
+interp cfg _ env Now now = pure (Timestamp (fromIntegral now))
+interp cfg _ env Epoch now = pure (Timestamp 0)
+interp cfg store env (Lambda x body) now = pure $ Value.Function $ \v ->
+  interp cfg store (Map.insert x v env) body now
+interp cfg store env (Let x rhs body) now = do
+  v <- interp cfg store env rhs now
+  interp cfg store (Map.insert x v env) body now
+interp cfg store env (FastForward t d) now = do
+  t <- interp cfg store env t now >>= expectTimestamp
+  d <- interp cfg store env d now >>= expectDuration
   pure (Value.Timestamp (t + d))
-interp store env (FilterByLabel cs s) now = do
-  s <- interp store env s now >>= expectInstantVector
+interp cfg store env (FilterByLabel cs s) now = do
+  s <- interp cfg store env s now >>= expectInstantVector
   let (mustBe, mustNotBe) = interpLabelInsts cs
   pure $
     Value.InstantVector $
@@ -195,147 +224,144 @@ interp store env (FilterByLabel cs s) now = do
        (&&)
          (mustBe `isSubsetOf` i.labels)
          (Set.null (mustNotBe `Set.intersection` i.labels))
-interp store env (Unless u v) now = do
-  u <- interp store env u now >>= expectInstantVector
-  v <- interp store env v now >>= expectInstantVector
+interp cfg store env (Unless u v) now = do
+  u <- interp cfg store env u now >>= expectInstantVector
+  v <- interp cfg store env v now >>= expectInstantVector
   let vls = Set.fromList (map (.labels) v)
   pure (Value.InstantVector (filter (\i -> not (member i.labels vls)) u))
-interp store env (Filter f t) now = do
-  f <- interp store env f now >>= expectFunction
-  t <- interp store env t now >>= expectInstantVector
+interp cfg store env (Filter f t) now = do
+  f <- interp cfg store env f now >>= expectFunction
+  t <- interp cfg store env t now >>= expectInstantVector
   Value.InstantVector <$> interpFilter f t
-interp store env (Join a b) now = do
-  a <- interp store env a now >>= expectInstantVector
-  b <- interp store env b now >>= expectInstantVector
+interp cfg store env (Join a b) now = do
+  a <- interp cfg store env a now >>= expectInstantVector
+  b <- interp cfg store env b now >>= expectInstantVector
   Value.InstantVector <$> liftEither (interpJoin Value.Pair a b)
-interp store env (Map f x) now = do
-  f <- interp store env f now >>= expectFunction
-  x <- interp store env x now >>= expectInstantVector
+interp cfg store env (Map f x) now = do
+  f <- interp cfg store env f now >>= expectFunction
+  x <- interp cfg store env x now >>= expectInstantVector
   Value.InstantVector <$> interpMap f x
-interp store env (Range s a b r) now = do
-  s <- interp store env s now >>= expectFunction
-  a <- interp store env a now >>= expectTimestamp
-  b <- interp store env b now >>= expectTimestamp
-  r <- traverse (\r -> interp store env r now >>= expectDuration) r
+interp cfg store env (Range s a b r) now = do
+  s <- interp cfg store env s now >>= expectFunction
+  a <- interp cfg store env a now >>= expectTimestamp
+  b <- interp cfg store env b now >>= expectTimestamp
+  r <- traverse (\r -> interp cfg store env r now >>= expectDuration) r
                                            -- TODO:        vvvvvvvvv make configurable
   RangeVector <$> interpRange s (Interval a b) (fromMaybe (15 * 1000) r)
-interp store env (Rewind t d) now = do
-  t <- interp store env t now >>= expectTimestamp
-  d <- interp store env d now >>= expectDuration
+interp cfg store env (Rewind t d) now = do
+  t <- interp cfg store env t now >>= expectTimestamp
+  d <- interp cfg store env d now >>= expectDuration
   pure (Timestamp (t - d))
-interp store env (BoolToScalar t) now = do
-  t <- interp store env t now >>= expectBoolean
+interp cfg store env (BoolToScalar t) now = do
+  t <- interp cfg store env t now >>= expectBoolean
   pure (Scalar (if t then 1 else 0))
-interp store env (InstantVectorToScalar t) now = do
-  t <- interp store env t now >>= expectInstantVectorBool
+interp cfg store env (InstantVectorToScalar t) now = do
+  t <- interp cfg store env t now >>= expectInstantVectorBool
   pure (Value.InstantVector (fmap (\x -> Value.Scalar (if x then 1.0 else 0.0)) <$> t))
-interp store env (TimestampToScalar t) now = do
-  t <- interp store env t now >>= expectTimestamp
+interp cfg store env (TimestampToScalar t) now = do
+  t <- interp cfg store env t now >>= expectTimestamp
   pure (Scalar (fromIntegral t))
-interp store env (DurationToScalar t) now = do
-  t <- interp store env t now >>= expectDuration
+interp cfg store env (DurationToScalar t) now = do
+  t <- interp cfg store env t now >>= expectDuration
   pure (Scalar (fromIntegral t))
-interp _ env (Milliseconds t) _ = pure $ Duration t
-interp _ env (Seconds t) _ = pure $ Duration (1000 * t)
-interp _ env (Minutes t) _ = pure $ Duration (60 * 1000 * t)
-interp _ env (Hours t) _ = pure $ Duration (60 * 60 * 1000 * t)
-interp store env (BinaryArithmeticOp.mbBinaryArithmeticOpInstantVectorScalar -> Just (a, op, b)) now = do
-  va <- interp store env a now >>= expectInstantVectorScalar
-  vb <- interp store env b now >>= expectInstantVectorScalar
-  v <- liftEither (interpJoin (BinaryArithmeticOp.materializeScalar op) va vb)
-  pure (Value.InstantVector (fmap (fmap Value.Scalar) v))
-interp store env (Quantile k expr) now = do
-  k <- interp store env k now >>= expectScalar
-  v <- interp store env expr now >>= expectInstantVectorScalar
+interp cfg _ env (Milliseconds t) _ = pure $ Duration t
+interp cfg _ env (Seconds t) _ = pure $ Duration (1000 * t)
+interp cfg _ env (Minutes t) _ = pure $ Duration (60 * 1000 * t)
+interp cfg _ env (Hours t) _ = pure $ Duration (60 * 60 * 1000 * t)
+interp cfg store env (BinaryArithmeticOp.mbBinaryArithmeticOpInstantVectorScalar -> Just (v, op, k)) now = do
+  interpBinaryArithmeticOp cfg store env v op k now
+interp cfg store env (Quantile k expr) now = do
+  k <- interp cfg store env k now >>= expectScalar
+  v <- interp cfg store env expr now >>= expectInstantVectorScalar
   pure $ Value.Scalar $ quantile cadpw (floor (k * 100)) 100 (Instant.toVector v)
-interp store env (QuantileBy ls k expr) now = do
-  k <- interp store env k now >>= expectScalar
-  v <- interp store env expr now >>= expectInstantVectorScalar
+interp cfg store env (QuantileBy ls k expr) now = do
+  k <- interp cfg store env k now >>= expectScalar
+  v <- interp cfg store env expr now >>= expectInstantVectorScalar
   Value.InstantVector . fmap (fmap Value.Scalar) <$> interpQuantileBy ls k v now
-interp store env (QuantileOverTime k expr) now = do
-  k <- interp store env k now >>= expectScalar
-  v <- interp store env expr now >>= expectRangeVectorScalar
+interp cfg store env (QuantileOverTime k expr) now = do
+  k <- interp cfg store env k now >>= expectScalar
+  v <- interp cfg store env expr now >>= expectRangeVectorScalar
   pure $ Value.InstantVector (fmap Value.Scalar <$> quantileRangeVector k v)
-interp store env (Rate r) now = do
-  r <- interp store env r now >>= expectRangeVectorScalar
+interp cfg store env (Rate r) now = do
+  r <- interp cfg store env r now >>= expectRangeVectorScalar
   -- TODO: PromQL's rate() performs linear regression to extrapolate the samples to the bounds
   r <- interpRate r
   pure (Value.InstantVector (fmap (fmap Value.Scalar) r))
-interp store env (Increase r) now = do
-  r <- interp store env r now >>= expectRangeVectorScalar
+interp cfg store env (Increase r) now = do
+  r <- interp cfg store env r now >>= expectRangeVectorScalar
   -- TODO: PromQL's increase() performs linear regression to extrapolate the samples to the bounds
   r <- interpIncrease r
   pure (Value.InstantVector (fmap (fmap Value.Scalar) r))
-interp store env (Avg expr) now = do
-  v <- interp store env expr now >>= expectInstantVectorScalar
+interp cfg store env (Avg expr) now = do
+  v <- interp cfg store env expr now >>= expectInstantVectorScalar
   pure $ Value.Scalar $ mean (Instant.toVector v)
-interp store env (Max expr) now = do
-  v <- interp store env expr now >>= expectInstantVectorScalar
+interp cfg store env (Max expr) now = do
+  v <- interp cfg store env expr now >>= expectInstantVectorScalar
   pure $ Value.Scalar $ snd $ minMax (Instant.toVector v)
-interp store env (Min expr) now = do
-  v <- interp store env expr now >>= expectInstantVectorScalar
+interp cfg store env (Min expr) now = do
+  v <- interp cfg store env expr now >>= expectInstantVectorScalar
   pure $ Value.Scalar $ fst $ minMax (Instant.toVector v)
-interp store env (AvgOverTime expr) now = do
-  v <- interp store env expr now >>= expectRangeVectorScalar
+interp cfg store env (AvgOverTime expr) now = do
+  v <- interp cfg store env expr now >>= expectRangeVectorScalar
   pure $ Value.InstantVector (fmap Value.Scalar <$> avgOverTime now v)
-interp store env (SumOverTime expr) now = do
-  v <- interp store env expr now >>= expectRangeVectorScalar
+interp cfg store env (SumOverTime expr) now = do
+  v <- interp cfg store env expr now >>= expectRangeVectorScalar
   pure $ Value.InstantVector (fmap Value.Scalar <$> sumOverTime now v)
-interp store env (MkPair a b) now = do
-  va <- interp store env a now
-  vb <- interp store env b now
+interp cfg store env (MkPair a b) now = do
+  va <- interp cfg store env a now
+  vb <- interp cfg store env b now
   pure $ Value.Pair va vb
-interp store env (Fst t) now = do
-  (a, _) <- interp store env t now >>= expectPair
+interp cfg store env (Fst t) now = do
+  (a, _) <- interp cfg store env t now >>= expectPair
   pure a
-interp store env (Snd t) now = do
-  (_, b) <- interp store env t now >>= expectPair
+interp cfg store env (Snd t) now = do
+  (_, b) <- interp cfg store env t now >>= expectPair
   pure b
-interp store env Expr.True now = do
+interp cfg store env Expr.True now = do
   pure Truth
-interp store env Expr.False now = do
+interp cfg store env Expr.False now = do
   pure Falsity
-interp store env (Expr.And a b) now = do
-  va <- interp store env a now >>= expectBoolean
-  vb <- interp store env b now >>= expectBoolean
+interp cfg store env (Expr.And a b) now = do
+  va <- interp cfg store env a now >>= expectBoolean
+  vb <- interp cfg store env b now >>= expectBoolean
   pure (fromBool (va && vb))
-interp store env (Expr.Or a b) now = do
-  va <- interp store env a now >>= expectBoolean
-  vb <- interp store env b now >>= expectBoolean
+interp cfg store env (Expr.Or a b) now = do
+  va <- interp cfg store env a now >>= expectBoolean
+  vb <- interp cfg store env b now >>= expectBoolean
   pure (fromBool (va || vb))
-interp store env (Expr.Not t) now = do
-  vt <- interp store env t now >>= expectBoolean
+interp cfg store env (Expr.Not t) now = do
+  vt <- interp cfg store env t now >>= expectBoolean
   pure (fromBool (not vt))
-interp store env (Expr.EqBool a b) now = do
-  va <- interp store env a now >>= expectBoolean
-  vb <- interp store env b now >>= expectBoolean
+interp cfg store env (Expr.EqBool a b) now = do
+  va <- interp cfg store env a now >>= expectBoolean
+  vb <- interp cfg store env b now >>= expectBoolean
   pure (fromBool (va == vb))
-interp store env (Expr.NotEqBool a b) now = do
-  va <- interp store env a now >>= expectBoolean
-  vb <- interp store env b now >>= expectBoolean
+interp cfg store env (Expr.NotEqBool a b) now = do
+  va <- interp cfg store env a now >>= expectBoolean
+  vb <- interp cfg store env b now >>= expectBoolean
   pure (fromBool (va /= vb))
-interp store env (mbBinaryRelationScalar -> Just (a, rel, b)) now = do
-  va <- interp store env a now >>= expectScalar
-  vb <- interp store env b now >>= expectScalar
+interp cfg store env (mbBinaryRelationScalar -> Just (a, rel, b)) now = do
+  va <- interp cfg store env a now >>= expectScalar
+  vb <- interp cfg store env b now >>= expectScalar
   pure (fromBool (BinaryRelation.materializeScalar rel va vb))
-interp store env (BinaryArithmeticOp.mbBinaryArithmeticOpScalar -> Just (a, op, b)) now = do
-  va <- interp store env a now >>= expectScalar
-  vb <- interp store env b now >>= expectScalar
+interp cfg store env (BinaryArithmeticOp.mbBinaryArithmeticOpScalar -> Just (a, op, b)) now = do
+  va <- interp cfg store env a now >>= expectScalar
+  vb <- interp cfg store env b now >>= expectScalar
   pure (Value.Scalar (BinaryArithmeticOp.materializeScalar op va vb))
-interp store env (Expr.Abs x) now = do
-  x <- interp store env x now >>= expectScalar
+interp cfg store env (Expr.Abs x) now = do
+  x <- interp cfg store env x now >>= expectScalar
   pure (Value.Scalar (abs x))
-interp store env (Expr.RoundScalar x) now = do
-  x <- interp store env x now >>= expectScalar
+interp cfg store env (Expr.RoundScalar x) now = do
+  x <- interp cfg store env x now >>= expectScalar
   pure (Value.Scalar (fromIntegral (round x :: Int)))
-interp store env (Application f e) now = do
-  f <- interp store env f now >>= expectFunction
-  e <- interp store env e now
+interp cfg store env (Application f e) now = do
+  f <- interp cfg store env f now >>= expectFunction
+  e <- interp cfg store env e now
   f e
-interp store env (Expr.AddDuration a b) now = do
-  a <- interp store env a now >>= expectDuration
-  b <- interp store env b now >>= expectDuration
+interp cfg store env (Expr.AddDuration a b) now = do
+  a <- interp cfg store env a now >>= expectDuration
+  b <- interp cfg store env b now >>= expectDuration
   pure (Value.Duration (a + b))
-interp store env (mbBinaryRelationInstantVector -> Just (v, rel, k)) now =
-  interpFilterBinaryRelation store env v rel k now
-interp _ _ expr _ = throwError $ "Can't interpret expression: " <> Text.show expr
+interp cfg store env (mbBinaryRelationInstantVector -> Just (v, rel, k)) now =
+  interpFilterBinaryRelation cfg store env v rel k now
+interp cfg _ _ expr _ = throwError $ "Can't interpret expression: " <> Text.show expr

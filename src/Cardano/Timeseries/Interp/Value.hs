@@ -1,7 +1,7 @@
 module Cardano.Timeseries.Interp.Value(Value(..), FunctionValue, fromBool) where
 
 import           Cardano.Timeseries.Domain.Instant
-import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector)
+import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector, prettyTimeseriesVector)
 
 import           Cardano.Timeseries.Interp.Types      (QueryM)
 import           Control.DeepSeq                      (NFData)
@@ -38,14 +38,14 @@ instance NFData Value
 
 instance Show Value where
   show (Scalar x)        = show x
-  show (RangeVector x)   = show x
+  show (RangeVector x)   = unpack (prettyTimeseriesVector x)
   show (InstantVector x) = unpack (prettyInstantVector x)
   show (Pair x y)        = "(" <> show x <> ", " <> show y <> ")"
   show Truth             = "True"
   show Falsity           = "False"
   show (Duration d)      = show d <> "ms"
   show (Timestamp t)     = show t
-  show (Function t)      = "<function>"
+  show (Function _)      = "<function>"
 
 fromBool :: Bool -> Value
 fromBool Prelude.True  = Truth
