@@ -16,19 +16,27 @@ common common
       -Wall
 
       -- to ease development only
-      -Wno-unused-matches
-      -Wno-unused-top-binds
-      -Wno-unused-local-binds
-      -Wno-unused-imports
+      -- -Wno-unused-matches
+      -- -Wno-unused-top-binds
+      -- -Wno-unused-local-binds
+      -- -Wno-unused-imports
 
-      -fno-prof-auto
+    if impl(ghc >= 9.8)
+      ghc-options:
+        -Wno-x-partial
 
-    default-language: GHC2021
+    if flag(profiling)
+      ghc-options:
+        -fno-prof-auto
+
+    default-language: Haskell2010
 
     default-extensions:
       LambdaCase
       NamedFieldPuns
       OverloadedStrings
+
+      -- NB.: This package is strict Haskell!
       Strict
 
 library
@@ -50,9 +58,7 @@ library
       deepseq
 
     exposed-modules:
-      Cardano.Timeseries.Data.Pair,
-      Cardano.Timeseries.Data.SnocList,
-      Cardano.Timeseries.Data.Triple,
+      Cardano.Timeseries.AsText,
       Cardano.Timeseries.Domain.Identifier,
       Cardano.Timeseries.Domain.Instant,
       Cardano.Timeseries.Domain.Interval,
@@ -142,10 +148,12 @@ benchmark timeseries-io-bench
       vector,
       text,
       serialise,
+      attoparsec,
       statistics,
       time,
       containers,
       mtl,
+      trace-dispatcher,
       trace-resources,
       timeseries-io,
       criterion

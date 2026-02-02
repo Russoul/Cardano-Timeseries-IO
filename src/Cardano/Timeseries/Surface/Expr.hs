@@ -1,13 +1,15 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Cardano.Timeseries.Surface.Expr(Expr(..), mkRange, mkApp, Loc, getLoc) where
 
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
-import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
-import           Data.List                            (foldl')
+import           Cardano.Timeseries.Domain.Types      (Label)
+import           Cardano.Timeseries.AsText
 import           Data.Set                             (Set)
-import           Data.Text                            (Text)
-import           Text.Megaparsec                      (SourcePos)
-import Cardano.Timeseries.Query.Expr (LabelConstraint)
-import Data.Word (Word64)
+import           Data.Text                            (Text, pack)
+import           Text.Megaparsec                      (SourcePos, sourcePosPretty)
+import           Cardano.Timeseries.Query.Expr (LabelConstraint)
+import           Data.Word (Word64)
 
 -- ---- not ----
 -- not < atom
@@ -109,6 +111,9 @@ import Data.Word (Word64)
 
 -- | Source location.
 type Loc = SourcePos
+
+instance AsText Loc where
+  asText = pack . sourcePosPretty
 
 data Expr =
     Let Loc Identifier Expr Expr

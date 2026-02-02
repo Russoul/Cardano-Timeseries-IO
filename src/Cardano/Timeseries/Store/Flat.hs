@@ -1,7 +1,11 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE RecordWildCards #-}
 module Cardano.Timeseries.Store.Flat(Flat, Point(..)) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (..), InstantVector,
@@ -9,13 +13,11 @@ import           Cardano.Timeseries.Domain.Instant (Instant (..), InstantVector,
 import qualified Cardano.Timeseries.Domain.Instant as Instant
 import           Cardano.Timeseries.Domain.Types
 import           Cardano.Timeseries.Store
-import           Cardano.Timeseries.Util
+import           Cardano.Timeseries.Util           (toMaybe)
 
 import           Control.DeepSeq                   (NFData)
-import           Data.List                         (foldl')
 import           Data.Set                          (fromList)
 import           GHC.Generics                      (Generic)
-import Data.Maybe (fromMaybe)
 
 data Point a = Point {
   name    :: MetricIdentifier,
@@ -37,7 +39,7 @@ instance Store (Flat a) a where
     updateTime = fmap (\i -> Instant i.labels targetTime i.value)
 
     choose :: InstantVector a -> Point a -> InstantVector a
-    choose acc p = accumulate acc (toMaybe (satisfies p) p) where
+    choose acc point = accumulate acc (toMaybe (satisfies point) point) where
 
       -- | Does that point match target metric name?
       -- | Does that point lie within the staleness window?
@@ -47,13 +49,12 @@ instance Store (Flat a) a where
                  && x.instant.timestamp <= targetTime
 
       accumulate :: InstantVector a -> Maybe (Point a) -> InstantVector a
-      accumulate acc Nothing = acc
-      accumulate acc (Just p) = accumulate acc p where
-        accumulate :: InstantVector a -> Point a -> InstantVector a
-        accumulate [] p = [p.instant]
-        accumulate (x : xs) p | share x p.instant = Instant.mostRecent x p.instant : xs
-        accumulate (x : xs) p = x : accumulate xs p
-
+      accumulate acc' Nothing = acc'
+      accumulate acc' (Just p_) = accumulateInt acc' p_ where
+        accumulateInt :: InstantVector a -> Point a -> InstantVector a
+        accumulateInt [] p = [p.instant]
+        accumulateInt (x : xs) p | share x p.instant = Instant.mostRecent x p.instant : xs
+        accumulateInt (x : xs) p = x : accumulateInt xs p
 
   new = []
 
@@ -61,14 +62,8 @@ instance Store (Flat a) a where
 
   count = length
 
-  earliest store ident = go Nothing store where
-    go acc [] = acc
-    go acc (x : xs) | ident == x.name = go (Just $ combine acc x.instant.timestamp) xs where
-      combine x y = min y (fromMaybe y x)
-    go acc (x : xs) = go acc xs
+  earliest [] _        = Nothing
+  earliest store ident = Just $ minimum [timestamp instant | Point{..} <- store, name == ident]
 
-  latest store ident = go Nothing store where
-    go acc [] = acc
-    go acc (x : xs) | ident == x.name = go (Just $ combine acc x.instant.timestamp) xs where
-      combine x y = max y (fromMaybe y x)
-    go acc (x : xs) = go acc xs
+  latest [] _          = Nothing
+  latest store ident   = Just $ maximum [timestamp instant | Point{..} <- store, name == ident]

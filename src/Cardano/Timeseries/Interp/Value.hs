@@ -1,12 +1,14 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
+
 module Cardano.Timeseries.Interp.Value(Value(..), FunctionValue, fromBool) where
 
 import           Cardano.Timeseries.Domain.Instant
-import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector, prettyTimeseriesVector)
+import           Cardano.Timeseries.Domain.Timeseries (TimeseriesVector)
+import           Cardano.Timeseries.AsText
 
 import           Cardano.Timeseries.Interp.Types      (QueryM)
 import           Control.DeepSeq                      (NFData)
-import           Control.Monad.Except                 (ExceptT)
-import           Control.Monad.State.Strict           (State)
 import           Data.Text                            (unpack)
 import           Data.Word                            (Word64)
 import           GHC.Generics                         (Generic)
@@ -38,8 +40,8 @@ instance NFData Value
 
 instance Show Value where
   show (Scalar x)        = show x
-  show (RangeVector x)   = unpack (prettyTimeseriesVector x)
-  show (InstantVector x) = unpack (prettyInstantVector x)
+  show (RangeVector x)   = unpack (asText x)
+  show (InstantVector x) = unpack (asText x)
   show (Pair x y)        = "(" <> show x <> ", " <> show y <> ")"
   show Truth             = "true"
   show Falsity           = "false"

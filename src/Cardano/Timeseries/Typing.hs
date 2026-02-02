@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Cardano.Timeseries.Typing(
   Ty(..),
   Binding(..),
@@ -8,14 +10,17 @@ module Cardano.Timeseries.Typing(
   instantiateTy,
   instantiateExpr,
   prettyTy,
-  prettyBinding,
-  prettyContext,
   TyPrec(..),
-  ty) where
-import           Cardano.Timeseries.Data.SnocList
-import           Cardano.Timeseries.Domain.Identifier (Identifier (..))
+  ty
+  ) where
+
+import           Cardano.Timeseries.Domain.Identifier (Identifier())
 import           Cardano.Timeseries.Query.Expr        (HoleIdentifier)
 import qualified Cardano.Timeseries.Query.Expr        as Semantic
+import           Cardano.Timeseries.AsText
+
+import           Data.Foldable as Foldable            (toList)
+import           Data.Sequence                        as Seq
 import           Data.Map.Strict                      (Map)
 import qualified Data.Map.Strict                      as Map
 import           Data.Text                            (Text)
@@ -43,7 +48,7 @@ prettyTy prec (InstantVector typ) = conditionalParens (prec == Tight) $
   "InstantVector " <> prettyTy Tight typ
 prettyTy prec (RangeVector typ) = conditionalParens (prec == Tight) $
   "RangeVector " <> prettyTy Tight typ
-prettyTy prec (Pair typ typ') =
+prettyTy _prec (Pair typ typ') =
   "(" <> prettyTy Loose typ <> ", " <> prettyTy Loose typ' <> ")"
 prettyTy prec (Fun typ typ') = conditionalParens (prec > FunCodomain) $
   prettyTy FunDomain typ <> " -> " <> prettyTy FunCodomain typ'
@@ -57,13 +62,9 @@ prettyTy _ (Hole idx) = "?" <> Text.show idx
 data Binding = LetBinding Identifier Semantic.Expr Ty
              | LambdaBinding Identifier Ty deriving (Show)
 
-prettyIdentifier ::  Identifier -> Text
-prettyIdentifier (User x)    = x
-prettyIdentifier (Machine i) = "$" <> Text.show i
-
-prettyBinding :: Binding -> Text
-prettyBinding (LetBinding x rhs typ) = "(" <> prettyIdentifier x <> " ≔ " <> "..." <> " : " <> prettyTy Loose typ <> ")"
-prettyBinding (LambdaBinding x typ) = "(" <> prettyIdentifier x <> " : " <> prettyTy Loose typ <> ")"
+instance AsText Binding where
+  asText (LetBinding x _rhs typ) = "(" <> asText x <> " ≔ " <> "..." <> " : " <> prettyTy Loose typ <> ")"
+  asText (LambdaBinding x typ)  = "(" <> asText x <> " : " <> prettyTy Loose typ <> ")"
 
 identifier :: Binding -> Identifier
 identifier (LetBinding x _ _)  = x
@@ -75,11 +76,11 @@ ty (LambdaBinding _ typ) = typ
 
 -- | Γ
 --   A typing context of a query expression.
-type Context = SnocList Binding
+type Context = Seq Binding
 
-prettyContext :: Context -> Text
-prettyContext Lin = "()"
-prettyContext ctx = Text.intercalate " " (fmap prettyBinding (toList ctx))
+instance AsText Context where
+  asText Empty = "()"
+  asText ctx   = Text.unwords $ map asText $ Foldable.toList ctx
 
 -- | (? type) | (? ≔ T type) | (? : T) | (? ≔ t : T)
 --   Definition of a type- or expression- level hole.

@@ -1,5 +1,10 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DeriveFoldable        #-}
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE ViewPatterns          #-}
 module Cardano.Timeseries.Store.Tree(Point(..), Tree, fromFlat) where
@@ -14,13 +19,13 @@ import           Cardano.Timeseries.Util           (range)
 
 import           Prelude                           hiding (lookup)
 
+import Data.Functor
 import           Control.DeepSeq                   (NFData)
 import qualified Data.List                         as List
 import           Data.Map.Strict                   (Map)
 import qualified Data.Map.Strict                   as Map
 import           Data.Maybe                        (fromMaybe)
 import           Data.Set                          (Set)
-import qualified Data.Set                          as Set
 import           GHC.Generics                      (Generic)
 
 data Point a = Point {
@@ -50,10 +55,7 @@ instance Store (Tree a) a where
 
       where
         -- | (-) wraps around, so make sure we do not in case `t` is too small
-        rangeStartExc =
-          if t > stalenessConstant
-          then t - stalenessConstant
-          else 0
+        rangeStartExc = max 0 (t - stalenessConstant)
 
         rangeEndExc = t + 1
 
@@ -61,30 +63,27 @@ instance Store (Tree a) a where
         updateTime = fmap (\i -> Instant i.labels t i.value)
 
         accumulate :: Map SeriesIdentifier (Timestamp, a) -> Timestamp -> [Point a] -> Map SeriesIdentifier (Timestamp, a)
-        accumulate closest t = List.foldl' (accumulate t) closest where
-          accumulate :: Timestamp -> Map SeriesIdentifier (Timestamp, a) -> Point a -> Map SeriesIdentifier (Timestamp, a)
-          accumulate t closest (Point ls v) = flip (Map.insert ls) closest $
-            case Map.lookup ls closest of
-              Just (t', v') | t' > t -> (t', v')
-              _                      -> (t, v)
+        accumulate closest tAcc = List.foldl' accumulateInt closest where
+          accumulateInt closest' (Point ls v) = flip (Map.insert ls) closest' $
+            case Map.lookup ls closest' of
+              Just (t', v') | t' > tAcc -> (t', v')
+              _                         -> (tAcc, v)
 
         convert :: Map SeriesIdentifier (Timestamp, a) -> InstantVector a
-        convert = map (\(ls, (t, v)) -> Instant ls t v) . Map.toList
+        convert = map (\(ls, (tConv, v)) -> Instant ls tConv v) . Map.toList
     Nothing -> []
 
   new :: Tree a
   new = Map.empty
 
   metrics :: Tree a -> Set MetricIdentifier
-  metrics = Set.fromList . Map.keys
+  metrics = Map.keysSet
 
-  count = Map.foldl (Map.foldl (\acc ps -> acc + length ps)) 0
+  count = sum . (sum . Map.map length <$>)
 
-  earliest store (flip Map.lookup store -> Just dat) | not (Map.null dat) = Just $ fst $ Map.findMin dat
-  earliest store _ = Nothing
+  earliest store key = Map.lookup key store >>= Map.lookupMin <&> fst
 
-  latest store (flip Map.lookup store -> Just dat) | not (Map.null dat) = Just $ fst $ Map.findMax dat
-  latest store _ = Nothing
+  latest   store key = Map.lookup key store >>= Map.lookupMax <&> fst
 
 fromFlat :: Flat a -> Tree a
 fromFlat []                          = new

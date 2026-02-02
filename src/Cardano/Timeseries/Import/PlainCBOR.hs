@@ -10,9 +10,7 @@ import           Cardano.Timeseries.Domain.Instant (Instant (..))
 import           Cardano.Timeseries.Store.Flat (Flat, Point (..))
 
 import           Codec.Serialise
-import           Control.Applicative
-import           Control.Monad (join)
-import           Data.Map.Strict as Map (Map, size)
+import           Data.Map.Strict as Map (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import           Data.Text (Text, unpack)

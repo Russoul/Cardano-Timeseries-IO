@@ -1,5 +1,4 @@
-{-# OPTIONS_GHC -Wno-deprecations #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE FlexibleContexts #-}
 {- HLINT ignore "Use print" -}
 
 module Common where
@@ -8,9 +7,8 @@ import           Cardano.Timeseries.Import.PlainCBOR
 import           Cardano.Timeseries.Interp              (interp)
 import           Cardano.Timeseries.Interp.Value        (Value)
 import           Cardano.Timeseries.Store
-import           Cardano.Timeseries.Store.Flat          (Flat,
-                                                         Point (instant, name))
-import           Cardano.Timeseries.Store.Flat.Parser   (point, double)
+import           Cardano.Timeseries.Store.Flat          (Flat)
+import           Cardano.Timeseries.Store.Flat.Parser   (double)
 import qualified Cardano.Timeseries.Surface.Expr.Parser as Surface.Parser
 
 import           Cardano.Logging.Resources              (ResourceStats,
@@ -18,27 +16,25 @@ import           Cardano.Logging.Resources              (ResourceStats,
                                                          readResourceStats)
 import           Cardano.Timeseries.Elab                (elab, initialSt)
 import           Cardano.Timeseries.Interp.Config       (Config (..))
-import           Cardano.Timeseries.Interp.Types        (Error)
+import           Cardano.Timeseries.Interp.Types        (QueryError)
 import           Cardano.Timeseries.Store.Tree          (Tree, fromFlat)
 import           Control.DeepSeq                        (force)
 import           Control.Monad                          (forever)
 import           Control.Monad.Except                   (runExceptT)
-import           Control.Monad.State.Strict             (evalState, runState)
+import           Control.Monad.State.Strict             (evalState)
 import           Data.Foldable                          (for_, traverse_)
 import qualified Data.Map                               as Map
-import           Data.Text                              (Text, pack, unpack)
+import           Data.Text                              (Text, unpack)
 import qualified Data.Text                              as Text
 import qualified Data.Text.IO                           as Text
-import           Data.Word                              (Word64)
-import           GHC.List                               (foldl')
 import           System.Environment                     (getArgs)
 import           System.Exit                            (die)
 import           System.FilePath                        (takeExtension)
-import           System.IO                              (hFlush, stdout, readFile')
+import           System.IO                              (hFlush, stdout)
 import           Text.Megaparsec                        hiding (count)
 import           Text.Megaparsec.Char                   (space, space1, newline)
+import           Cardano.Timeseries.AsText
 import qualified Cardano.Timeseries.Store.Flat.Parser as Flat.Parser
-import Text.Megaparsec.Char.Lexer (scientific)
 import Data.Void (Void)
 import Data.Functor (void)
 
@@ -48,8 +44,8 @@ interpConfig = Config {defaultRangeSamplingRateMillis = 15 * 1000}
 printStore :: Flat Double -> IO ()
 printStore = traverse_ print
 
-printQueryResult :: Either Error Value -> IO ()
-printQueryResult (Left err) = Text.putStrLn ("Error: " <> err)
+printQueryResult :: Either QueryError Value -> IO ()
+printQueryResult (Left err) = Text.putStrLn $ asText err
 printQueryResult (Right ok) = print ok
 
 printStats :: ResourceStats -> IO ()

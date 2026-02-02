@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {- HLINT ignore "Use <$>" -}
 module Cardano.Timeseries.Surface.Expr.Parser(expr) where
 
@@ -6,20 +5,17 @@ import           Cardano.Timeseries.Domain.Identifier (Identifier (User))
 import           Cardano.Timeseries.Surface.Expr
 import           Control.Applicative                  hiding (many, some)
 
-import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
+import           Cardano.Timeseries.Domain.Types      (Label)
 import           Cardano.Timeseries.Query.Expr        (LabelConstraint (..))
 import           Cardano.Timeseries.Surface.Expr.Head (Head)
 import qualified Cardano.Timeseries.Surface.Expr.Head as Head
 import           Control.Monad                        (guard)
 import           Data.Char                            (isAlpha, isAlphaNum)
 import           Data.Functor                         (void)
-import           Data.List                            (foldl')
-import           Data.List.NonEmpty                   (NonEmpty ((:|)),
-                                                       fromList)
 import           Data.Scientific                      (toRealFloat)
 import           Data.Set                             (Set)
 import qualified Data.Set                             as Set
-import           Data.Text                            (Text, pack)
+import           Data.Text                            (Text)
 import           Data.Void                            (Void)
 import           GHC.Unicode                          (isControl)
 import           Prelude                              hiding (head)
@@ -193,8 +189,8 @@ setLabel = do
   void $ string ")"
   pure $ Set.fromList list
 
-head :: Parser Head
-head = (
+headParse :: Parser Head
+headParse = (
         Head.Fst <$ string "fst"
     <|> Head.Snd <$ string "snd"
     <|> Head.Min <$ string "min"
@@ -241,7 +237,7 @@ applyBuiltin l (Head.QuantileBy ls) [k, xs] = pure $ QuantileBy l ls k xs
 applyBuiltin l (Head.Earliest x) [] = pure $ Earliest l x
 applyBuiltin l (Head.Latest x) [] = pure $ Latest l x
 applyBuiltin l Head.ToScalar [t] = pure $ ToScalar l t
-applyBuiltin l h args = wrongNumberOfArguments (length args) (show h)
+applyBuiltin _ h args = wrongNumberOfArguments (length args) (show h)
 
 apply :: Loc -> Either Head Expr -> [Expr] -> Parser Expr
 apply l (Left t)  = applyBuiltin l t
@@ -253,7 +249,7 @@ exprAppArg = try exprNot <|> exprRange
 exprApp :: Parser Expr
 exprApp = do
   l <- getSourcePos
-  h <- try (Left <$> head) <|> Right <$> exprAppArg
+  h <- try (Left <$> headParse) <|> Right <$> exprAppArg
   args <- many (try (space1 *> exprAppArg))
   apply l h args
 

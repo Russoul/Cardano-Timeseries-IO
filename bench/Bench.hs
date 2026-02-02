@@ -1,6 +1,5 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
-{-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE BangPatterns #-}
+
 import           Cardano.Logging (forHuman)
 import           Cardano.Logging.Resources (ResourceStats, Resources (..), readResourceStats)
 import           Cardano.Timeseries.Import.PlainCBOR
