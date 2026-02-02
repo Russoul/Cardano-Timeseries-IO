@@ -1,22 +1,26 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Cardano.Timeseries.Domain.Timeseries(Timeseries(..), TimeseriesVector,
-  transpose, toVector, oldest, newest, eachOldest, eachNewest, superseries,
-  prettyTimeseries, prettyTimeseriesVector) where
+  transpose, toVector, oldest, newest, eachOldest, eachNewest, superseries) where
 
 import           Cardano.Timeseries.Domain.Instant (Instant (Instant), InstantVector)
 import qualified Cardano.Timeseries.Domain.Instant as Instant
 import           Cardano.Timeseries.Domain.Types
+import           Cardano.Timeseries.AsText
 
 import           Control.DeepSeq (NFData)
+import           Data.Function (on)
 import           Data.List (find, maximumBy, minimumBy)
 import           Data.Set
 import qualified Data.Set as Set
 import           Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import           GHC.Generics (Generic)
-import Data.Text (Text)
 import qualified Data.Text as Text
 
 -- | A collection of datapoints sharing a series.
@@ -30,13 +34,13 @@ instance NFData a => NFData (Timeseries a)
 oldest :: Timeseries a -> Maybe (Instant a)
 oldest Timeseries{..} | Prelude.null dat = Nothing
 oldest Timeseries{..} =
-  let (t, x) = minimumBy (\(x, _) (y, _) -> compare x y) dat in
+  let (t, x) = minimumBy (compare `on` fst) dat in
   Just (Instant labels t x)
 
 newest :: Timeseries a -> Maybe (Instant a)
 newest Timeseries{..} | Prelude.null dat = Nothing
 newest Timeseries{..} =
-  let (t, x) = maximumBy (\(x, _) (y, _) -> compare x y) dat in
+  let (t, x) = maximumBy (compare `on` fst) dat in
   Just (Instant labels t x)
 
 -- | Every two elements in the list must have distinct series identifiers (set of labels),
@@ -78,15 +82,15 @@ transpose instants =
 
   -- | Given a set of labels (identifying a series) form up a series from a list of instant vectors.
   form :: SeriesIdentifier -> [InstantVector a] -> Timeseries a
-  form ls insts = Timeseries ls (form ls insts) where
+  form ls insts_ = Timeseries ls (formInt insts_) where
     -- | Extract the data pertaining to the series (identified by the given `SeriesIdentifier`) from the list of
     -- | ranges vectors.
-    form :: SeriesIdentifier -> [InstantVector a] -> [(Timestamp, a)]
-    form _ [] = []
-    form ls (inst : insts) =
+    formInt :: [InstantVector a] -> [(Timestamp, a)]
+    formInt [] = []
+    formInt (inst : insts) =
       case find (\i -> Instant.labels i == ls) inst of
-        Just i -> (Instant.timestamp i, Instant.value i) : form ls insts
-        Nothing -> form ls insts
+        Just i -> (Instant.timestamp i, Instant.value i) : formInt insts
+        Nothing -> formInt insts
 
   setOfLabels' :: InstantVector a -> Set SeriesIdentifier
   setOfLabels' [] = Set.empty
@@ -103,11 +107,11 @@ toVector = Vector.fromList . fmap snd . dat
 superseries :: Set Label -> SeriesIdentifier -> SeriesIdentifier
 superseries ls = Set.filter (\(k, _) -> k `elem` ls)
 
-prettyTimeseries :: Show a => Timeseries a -> Text
-prettyTimeseries (Timeseries ls ps) =
-  Text.show (Set.toList ls)
-    <> "\n"
-    <> Text.intercalate "\n" (fmap (\(t, v) -> Text.show t <> " " <> Text.show v) ps)
+instance Show a => AsText (Timeseries a) where
+  asText (Timeseries ls ps) =
+    Text.show (Set.toList ls)
+      <> "\n"
+      <> Text.unlines (fmap (\(t, v) -> Text.show t <> " " <> Text.show v) ps)
 
-prettyTimeseriesVector :: Show a => TimeseriesVector a -> Text
-prettyTimeseriesVector = Text.intercalate "\n" . fmap prettyTimeseries
+instance Show a => AsText (TimeseriesVector a) where
+  asText = Text.unlines . fmap asText

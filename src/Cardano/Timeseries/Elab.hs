@@ -1,51 +1,49 @@
+{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot   #-}
 {-# LANGUAGE ViewPatterns          #-}
+
+{-# OPTIONS_GHC -Wno-unused-matches #-} -- TODO: this will have to go eventually; currently tons of offenses during development
+
 module Cardano.Timeseries.Elab(initialSt, St(..), ElabM, elab) where
-import           Cardano.Timeseries.Data.Pair                (Pair (..))
-import           Cardano.Timeseries.Data.SnocList
 import           Cardano.Timeseries.Domain.Identifier        (Identifier)
-import           Cardano.Timeseries.Domain.Types             (Labelled)
 import           Cardano.Timeseries.Query.BinaryArithmeticOp
 import qualified Cardano.Timeseries.Query.BinaryArithmeticOp as BinaryArithmeticOp
-import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation,
-                                                              prettyBinaryRelation)
+import           Cardano.Timeseries.Query.BinaryRelation     (BinaryRelation)
 import qualified Cardano.Timeseries.Query.BinaryRelation     as BinaryRelation
-import           Cardano.Timeseries.Query.Expr               (HoleIdentifier,
-                                                              LabelConstraint (..))
+import           Cardano.Timeseries.Query.Expr               (HoleIdentifier)
 import qualified Cardano.Timeseries.Query.Expr               as Semantic
 import           Cardano.Timeseries.Resolve
 import           Cardano.Timeseries.Surface.Expr             (Loc, getLoc)
 import qualified Cardano.Timeseries.Surface.Expr             as Surface
+import           Cardano.Timeseries.AsText
 import           Cardano.Timeseries.Typing                   (Binding (..),
                                                               Context, Def (..),
                                                               Defs,
                                                               Ty (Bool, Duration, Fun, Hole, InstantVector, RangeVector, Scalar, Timestamp),
                                                               TyPrec (Loose),
                                                               instantiateExpr,
-                                                              prettyContext,
                                                               prettyTy)
 import qualified Cardano.Timeseries.Typing                   as Ty
 import qualified Cardano.Timeseries.Typing                   as Types
 import           Cardano.Timeseries.Unify                    (UnificationProblem (..),
                                                               UnifyM)
 import qualified Cardano.Timeseries.Unify                    as Unify
-import           Control.Monad                               (when)
+import           Control.Monad                               (forM_)
 import           Control.Monad.Except                        (ExceptT,
                                                               liftEither,
                                                               runExceptT,
                                                               throwError)
 import           Control.Monad.State.Strict                  (State, get,
                                                               modify, put,
-                                                              runState, state)
-import           Data.List.NonEmpty                          (NonEmpty (..))
-import qualified Data.List.NonEmpty                          as NonEmpty
+                                                              runState)
+import           Data.Foldable                               as Foldable (toList)
+import           Data.List                                   (find)
 import qualified Data.Map.Strict                             as Map
-import qualified Data.Set                                    as Set
+import           Data.Sequence                               as Seq (Seq(..), fromList, singleton, (><), (|>))
 import           Data.Text                                   (Text, pack)
 import qualified Data.Text                                   as Text
-import           Debug.Trace                                 (traceM)
-import           Text.Megaparsec                             (sourcePosPretty)
+
 
 -- | Γ ⊦ s ~> ?x : A
 data GeneralElabProblem = GeneralElabProblem {
@@ -55,13 +53,13 @@ data GeneralElabProblem = GeneralElabProblem {
   holeTy  :: Ty
 } deriving (Show)
 
-prettyGeneralElabProblem :: GeneralElabProblem -> Text
-prettyGeneralElabProblem (GeneralElabProblem gam sur hole holeTy) =
-  prettyContext gam
-    <> " ⊦ "
-    <> prettyTy Loose holeTy
-    <> "\n  @ "
-    <> Text.pack (sourcePosPretty (getLoc sur))
+instance AsText GeneralElabProblem where
+  asText (GeneralElabProblem gam sur hole holeTy) =
+    asText gam
+      <> " ⊦ "
+      <> prettyTy Loose holeTy
+      <> "\n  @ "
+      <> asText (getLoc sur)
 
 evalGeneralElabProblem :: Defs -> GeneralElabProblem -> GeneralElabProblem
 evalGeneralElabProblem defs (GeneralElabProblem gam tm hole holeTy) =
@@ -82,17 +80,17 @@ data BinaryRelationElabProblem = BinaryRelationElabProblem {
 
 prettyBinaryRelationElabProblem :: BinaryRelationElabProblem -> Text
 prettyBinaryRelationElabProblem (BinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy) =
-  prettyContext gam
+  asText gam
     <> " ⊦ "
     <> prettyTy Loose lhsTy
     <> " "
-    <> prettyBinaryRelation rel
+    <> asText rel
     <> " "
     <> prettyTy Loose rhsTy
     <> " : "
     <> prettyTy Loose holeTy
     <> "\n  @ "
-    <> Text.pack (sourcePosPretty loc)
+    <> asText loc
 
 evalBinaryRelationElabProblem :: Defs -> BinaryRelationElabProblem -> BinaryRelationElabProblem
 evalBinaryRelationElabProblem defs (BinaryRelationElabProblem gam loc lhs lhsTy rel rhs rhsTy hole holeTy) =
@@ -122,17 +120,17 @@ data BinaryArithmeticOpElabProblem = BinaryArithmeticOpElabProblem {
 
 prettyBinaryArithmeticOpElabProblem :: BinaryArithmeticOpElabProblem -> Text
 prettyBinaryArithmeticOpElabProblem (BinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy) =
-  prettyContext gam
+  asText gam
     <> " ⊦ "
     <> prettyTy Loose lhsTy
     <> " "
-    <> prettyOp op
+    <> asText op
     <> " "
     <> prettyTy Loose rhsTy
     <> " : "
     <> prettyTy Loose holeTy
     <> "\n  @ "
-    <> Text.pack (sourcePosPretty loc)
+    <> asText loc
 
 evalBinaryArithmethicOpElabProblem :: Defs -> BinaryArithmeticOpElabProblem -> BinaryArithmeticOpElabProblem
 evalBinaryArithmethicOpElabProblem defs (BinaryArithmeticOpElabProblem gam loc lhs lhsTy op rhs rhsTy hole holeTy) =
@@ -156,13 +154,13 @@ data ToScalarElabProblem = ToScalarElabProblem {
   hole  :: HoleIdentifier
 } deriving (Show)
 
-prettyToScalarElabProblem :: ToScalarElabProblem -> Text
-prettyToScalarElabProblem (ToScalarElabProblem gam loc expr ty hole) =
-  prettyContext gam
-    <> " ⊦ to_scalar "
-    <> prettyTy Loose ty
-    <> "\n  @ "
-    <> Text.pack (sourcePosPretty loc)
+instance AsText ToScalarElabProblem where
+  asText (ToScalarElabProblem gam loc expr ty hole) =
+    asText gam
+      <> " ⊦ to_scalar "
+      <> prettyTy Loose ty
+      <> "\n  @ "
+      <> asText loc
 
 evalToScalarElabProblem :: Defs -> ToScalarElabProblem -> ToScalarElabProblem
 evalToScalarElabProblem defs (ToScalarElabProblem gam loc expr exprTy hole) =
@@ -178,17 +176,18 @@ data ElabProblem = General GeneralElabProblem
                  | BinaryArithmeticOp BinaryArithmeticOpElabProblem
                  | ToScalar ToScalarElabProblem deriving (Show)
 
+instance AsText ElabProblem where
+  asText (General p)            = asText p
+  asText (BinaryRelation p)     = prettyBinaryRelationElabProblem p
+  asText (BinaryArithmeticOp p) = prettyBinaryArithmeticOpElabProblem p
+  asText (ToScalar p)           = asText p
+
 evalElabProblem :: Defs -> ElabProblem -> ElabProblem
 evalElabProblem defs (General p) = General (evalGeneralElabProblem defs p)
 evalElabProblem defs (BinaryRelation p) = BinaryRelation (evalBinaryRelationElabProblem defs p)
 evalElabProblem defs (BinaryArithmeticOp p) = BinaryArithmeticOp (evalBinaryArithmethicOpElabProblem defs p)
 evalElabProblem defs (ToScalar p) = ToScalar (evalToScalarElabProblem defs p)
 
-prettyElabProblem :: ElabProblem -> Text
-prettyElabProblem (General p)            = prettyGeneralElabProblem p
-prettyElabProblem (BinaryRelation p)     = prettyBinaryRelationElabProblem p
-prettyElabProblem (BinaryArithmeticOp p) = prettyBinaryArithmeticOpElabProblem p
-prettyElabProblem (ToScalar p)           = prettyToScalarElabProblem p
 
 data St = St {
   defs               :: Defs,
@@ -210,9 +209,6 @@ setDefs v = updateDefs (const v)
 updateNextHoleIdentifier :: (HoleIdentifier -> HoleIdentifier) -> St -> St
 updateNextHoleIdentifier f (St ds x) = St ds (f x)
 
-setNextHoleIdentifier :: HoleIdentifier -> St -> St
-setNextHoleIdentifier v = updateNextHoleIdentifier (const v)
-
 runUnifyM :: UnifyM a -> ElabM a
 runUnifyM f = do
   st <- get
@@ -222,9 +218,9 @@ runUnifyM f = do
   liftEither r
 
 
-type Error = Text
+type ElabError = Text
 
-type ElabM a = ExceptT Error (State St) a
+type ElabM a = ExceptT ElabError (State St) a
 
 freshHoleIdentifier :: ElabM HoleIdentifier
 freshHoleIdentifier = do
@@ -261,9 +257,9 @@ mbBinaryArithmeticOp (Surface.Div l a b) = Just (l, a, BinaryArithmeticOp.Div, b
 mbBinaryArithmeticOp _                   = Nothing
 
 checkFresh :: Context -> Identifier -> ElabM ()
-checkFresh Lin _ = pure ()
-checkFresh (Snoc rest b) v | Types.identifier b == v = throwError $ pack $ "Reused variable name: " <> show (Types.identifier b)
-checkFresh (Snoc rest b) v = checkFresh rest v
+checkFresh ctx v =
+  forM_ (find (\b -> Types.identifier b == v) ctx) $ \found ->
+    throwError $ pack $ "Reused variable name: " <> show (Types.identifier found)
 
 -- | Γ ⊦ to_scalar (t : T) ~> ?
 -- Assumes that `Ty` is normal w.r.t. hole substitution.
@@ -290,7 +286,7 @@ solveToScalarElabProblem gam loc expr badType hole = throwError $
   "to_scalar can't be applied to an expression of type "
     <> prettyTy Loose badType
     <> "\n  @ "
-    <> Text.pack (sourcePosPretty loc)
+    <> asText loc
 
 -- | Σ Γ ⊦ InstantVector Scalar `rel` Scalar ~> ? : InstantVector Scalar
 -- | Σ Γ ⊦ Scalar `rel` Scalar ~> ? : Bool
@@ -738,7 +734,7 @@ solveGeneralElabProblem gam (Surface.Lambda l v scope) x typ = do
   checkFresh gam v
   let u = UnificationProblem l typ (Fun (Hole tyah) (Hole tybh))
   scopeh <- freshExprHole (Hole tybh)
-  let e = General $ GeneralElabProblem (Snoc gam (LambdaBinding v (Hole tyah))) scope scopeh (Hole tybh)
+  let e = General $ GeneralElabProblem (gam |> LambdaBinding v (Hole tyah)) scope scopeh (Hole tybh)
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Lambda
@@ -753,7 +749,7 @@ solveGeneralElabProblem gam (Surface.Let l v rhs scope) x typ = do
   rhsh <- freshExprHole (Hole tyah)
   scopeh <- freshExprHole (Hole tybh)
   let e1 = General $ GeneralElabProblem gam rhs rhsh (Hole tyah)
-  let e2 = General $ GeneralElabProblem (Snoc gam (LetBinding v (Semantic.Hole rhsh) (Hole tyah))) scope scopeh (Hole tybh)
+  let e2 = General $ GeneralElabProblem (gam |> LetBinding v (Semantic.Hole rhsh) (Hole tyah)) scope scopeh (Hole tybh)
   modify $ updateDefs $
     instantiateExpr x $
       Semantic.Let
@@ -883,29 +879,29 @@ solveElabProblem (ToScalar (ToScalarElabProblem gam loc t tTy hole)) = do
   let tTy' = resolveTy defs tTy
   solveToScalarElabProblem gam' loc t tTy' hole
 
-solveH :: Bool -> SnocList ElabProblem -> [ElabProblem] -> ElabM (Bool, SnocList ElabProblem)
-solveH progress stuck [] = pure (progress, stuck)
-solveH progress stuck (p : ps) = do
+solveH :: Bool -> Seq ElabProblem -> Seq ElabProblem -> ElabM (Bool, Seq ElabProblem)
+solveH progress stuck Empty = pure (progress, stuck)
+solveH progress stuck (p :<| ps) = do
   solveElabProblem p >>= \case
-    Nothing -> solveH progress (Snoc stuck p) ps
-    Just (us, es) -> runUnifyM (Unify.solve us) >> solveH True stuck (es ++ ps)
+    Nothing       -> solveH progress (stuck |> p) ps
+    Just (us, es) -> runUnifyM (Unify.solve us) >> solveH True stuck (fromList es >< ps)
 
-solve :: [ElabProblem] -> ElabM ()
-solve [] = pure ()
+solve :: Seq ElabProblem -> ElabM ()
+solve Empty = pure ()
 solve problems =
-  solveH False Lin problems >>= \case
-    (True, stuck) -> solve (toList stuck)
+  solveH False Empty problems >>= \case
+    (True, stuck) -> solve stuck
     (False, stuck) -> do
       defs <- defs <$> get
-      let toShow = fmap (prettyElabProblem . evalElabProblem defs) (toList stuck)
+      let toShow = fmap (asText . evalElabProblem defs) stuck
       throwError $ "Can't solve elaboration problems:\n" <>
-        Text.intercalate "\n" toShow
+        (Text.unlines $ Foldable.toList toShow)
 
 -- | Given a surface query `Surface.Expr` elaborate it into a regular "semantic" query `Semantic.Expr`.
 elab :: Surface.Expr -> ElabM Semantic.Expr
 elab expr = do
   typ <- freshTyHole
   t <- freshExprHole (Hole typ)
-  solve [General $ GeneralElabProblem Lin expr t (Hole typ)]
+  solve $ Seq.singleton (General $ GeneralElabProblem Seq.Empty expr t (Hole typ))
   ds <- getDefs <$> get
   pure $ resolveExpr' ds (Semantic.Hole t)

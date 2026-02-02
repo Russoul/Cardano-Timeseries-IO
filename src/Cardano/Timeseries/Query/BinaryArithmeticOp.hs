@@ -1,16 +1,18 @@
 module Cardano.Timeseries.Query.BinaryArithmeticOp(BinaryArithmeticOp(..),
-  embedScalar, embedInstantVectorScalar, prettyOp,
+  embedScalar, embedInstantVectorScalar,
   mbBinaryArithmeticOpScalar, mbBinaryArithmeticOpInstantVectorScalar, materializeScalar) where
-import Data.Text (Text)
+
+import Cardano.Timeseries.AsText
 import Cardano.Timeseries.Query.Expr (Expr(..))
 
 data BinaryArithmeticOp = Add | Sub | Mul | Div deriving (Show, Eq, Ord)
 
-prettyOp :: BinaryArithmeticOp -> Text
-prettyOp Add = "+"
-prettyOp Sub = "-"
-prettyOp Mul = "*"
-prettyOp Div = "/"
+instance AsText BinaryArithmeticOp where
+  asText = \case
+    Add -> "+"
+    Sub -> "-"
+    Mul -> "*"
+    Div -> "/"
 
 embedScalar :: BinaryArithmeticOp -> Expr -> Expr -> Expr
 embedScalar Add = AddScalar

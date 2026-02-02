@@ -1,10 +1,17 @@
-module Cardano.Timeseries.Domain.Instant(Instant(..), InstantVector, mostRecent, share, toVector, prettyInstant, prettyInstantVector) where
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
+
+module Cardano.Timeseries.Domain.Instant(Instant(..), InstantVector, mostRecent, share, toVector) where
 
 import           Cardano.Timeseries.Domain.Types (SeriesIdentifier, Timestamp)
+import           Cardano.Timeseries.AsText
 
 import           Control.DeepSeq (NFData)
 import qualified Data.Set as Set
-import           Data.Text (Text, intercalate, pack)
+import           Data.Text as Text (unlines, pack)
 import           Data.Vector
 import           GHC.Generics (Generic)
 
@@ -30,9 +37,9 @@ mostRecent u v = if timestamp u < timestamp v then v else u
 toVector :: InstantVector Double -> Vector Double
 toVector = fromList . fmap value
 
-prettyInstant :: Show a => Instant a -> Text
-prettyInstant (Instant ls t v) =
-  pack (show (Set.toList ls)) <> " " <> pack (show t) <> " " <> pack (show v)
+instance Show a => AsText (Instant a) where
+  asText (Instant ls t v) =
+    pack (show (Set.toList ls)) <> " " <> pack (show t) <> " " <> pack (show v)
 
-prettyInstantVector :: Show a => InstantVector a -> Text
-prettyInstantVector = intercalate "\n" . fmap prettyInstant
+instance Show a => AsText (InstantVector a) where
+  asText = Text.unlines . fmap asText

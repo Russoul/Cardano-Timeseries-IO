@@ -5,9 +5,9 @@ module Cardano.Timeseries.Store.Flat.Parser(double, point) where
 import           Cardano.Timeseries.Domain.Instant
 import           Cardano.Timeseries.Domain.Types   (Labelled, MetricIdentifier,
                                                     Timestamp)
-import           Cardano.Timeseries.Store.Flat     (Flat, Point (..))
+import           Cardano.Timeseries.Store.Flat     (Point (..))
 
-import           Data.Char                         (isAlpha, isDigit, isControl)
+import           Data.Char                         (isControl)
 import           Data.Set                          (fromList)
 import           Data.Text                         (Text)
 import qualified Data.Text                         as Text
@@ -15,8 +15,7 @@ import           Data.Word                         (Word64)
 
 import           Data.Void                         (Void)
 import           Text.Megaparsec
-import           Text.Megaparsec.Char              (char, newline, space,
-                                                    space1, string)
+import           Text.Megaparsec.Char              (char, space, space1, string)
 import           Text.Megaparsec.Char.Lexer        (decimal, scientific, signed)
 import Data.Scientific (toRealFloat)
 
@@ -48,10 +47,7 @@ point value = makePoint
   equals :: Parser ()
   equals = space <* string "=" <* space
 
-  inDoublequotes :: forall a. Parser a -> Parser a
-  inDoublequotes f = string "\"" *> f <* string "\""
-
-  inBrackets :: forall a. Parser a -> Parser a
+  inBrackets :: Parser a -> Parser a
   inBrackets f = string "[" *> space *> f <* space <* string "]"
 
   text :: Parser Text

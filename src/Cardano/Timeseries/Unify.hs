@@ -1,16 +1,14 @@
 {- HLINT ignore "Use newtype instead of data" -}
+{-# OPTIONS_GHC -Wno-unused-matches #-} -- TODO: this will have to go eventually; currently tons of offenses during development
 module Cardano.Timeseries.Unify(UnificationProblem(..), St(..), UnifyM, unify, solve) where
 import           Cardano.Timeseries.Query.Expr   (HoleIdentifier)
 import           Cardano.Timeseries.Resolve
 import           Cardano.Timeseries.Surface.Expr (Loc)
-import           Cardano.Timeseries.Typing       (Binding (..), Context,
-                                                  Def (..), Defs, Ty (..),
+import           Cardano.Timeseries.Typing       (Defs, Ty (..),
                                                   TyPrec (Loose), instantiateTy,
                                                   prettyTy)
-import           Control.Monad                   (join)
 import           Control.Monad.Except            (ExceptT, throwError)
-import           Control.Monad.State.Strict      (State, get, lift, state)
-import qualified Data.Map.Strict                 as Map
+import           Control.Monad.State.Strict      (State, get, state)
 import           Data.Text                       (Text, pack)
 import           Text.Megaparsec                 (sourcePosPretty)
 
@@ -28,9 +26,9 @@ data St = St {
   defs :: Defs
 }
 
-type Error = Text
+type UnifyError = Text
 
-type UnifyM a = ExceptT Error (State St) a
+type UnifyM a = ExceptT UnifyError (State St) a
 
 updateDefs :: Defs -> St -> St
 updateDefs defs (St _) = St defs

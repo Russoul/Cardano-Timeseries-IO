@@ -1,6 +1,6 @@
 module Cardano.Timeseries.Surface.Expr.Head(Head(..)) where
 import           Cardano.Timeseries.Domain.Identifier (Identifier)
-import           Cardano.Timeseries.Domain.Types      (Label, Labelled)
+import           Cardano.Timeseries.Domain.Types      (Label)
 import           Data.Set                             (Set)
 
 data Head = Fst

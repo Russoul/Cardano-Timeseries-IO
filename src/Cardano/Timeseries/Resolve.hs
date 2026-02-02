@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unused-matches #-} -- TODO: this will have to go eventually; currently tons of offenses during development
 module Cardano.Timeseries.Resolve(resolveTy, resolveBinding, resolveContext, resolveExpr') where
 import           Cardano.Timeseries.Query.Expr (Expr (..))
 import qualified Cardano.Timeseries.Query.Expr as Expr
