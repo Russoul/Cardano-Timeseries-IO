@@ -4,7 +4,6 @@
      -
    (abs(max(${slotMetric}{environment="${env}"}) - on() group_right() ${slotMetric}{environment="${env}"}) < bool ${toString lagSeconds})
 ) == 1
-// TODO: look into on() and group_right() again
 
 //PromQL
 ${kesPeriodsRemaining} <= ${toString periodNotice}

@@ -148,7 +148,7 @@ benchmark timeseries-io-bench
       vector,
       text,
       serialise,
-      attoparsec,
+      megaparsec,
       statistics,
       time,
       containers,
